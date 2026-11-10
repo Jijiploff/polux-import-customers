@@ -14,6 +14,7 @@ import {
   type ThreadMessage,
 } from "../../api/agent";
 import { Loading } from "../../components/Loading";
+import { Timeline } from "../../components/Timeline";
 
 type Modo = "cliente" | "asesor";
 
@@ -67,6 +68,7 @@ export function SimuladorPage() {
   const [ultimo, setUltimo] = useState<AgentResult | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [verHistorial, setVerHistorial] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -330,6 +332,23 @@ export function SimuladorPage() {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {chatActivo && (
+                <button
+                  type="button"
+                  onClick={() => setVerHistorial((v) => !v)}
+                  aria-label="Ver historial del pedido"
+                  aria-expanded={verHistorial}
+                  style={{
+                    background: verHistorial ? "#ffffff" : "rgba(255,255,255,0.15)",
+                    color: verHistorial ? "#008069" : "#ffffff",
+                    border: "1px solid rgba(255,255,255,0.6)",
+                    borderRadius: 999, padding: "2px 10px",
+                    fontSize: "0.72rem", fontWeight: 700, cursor: "pointer",
+                  }}
+                >
+                  📋 Historial
+                </button>
+              )}
               {chatActivo?.caso_abierto_id && (
                 <Chip color="#fee2e2" texto="#b91c1c">
                   Caso #{chatActivo.caso_abierto_id} · {chatActivo.caso_abierto_motivo}
@@ -341,6 +360,17 @@ export function SimuladorPage() {
               </div>
             </div>
           </div>
+
+          {/* Historial del pedido (línea de tiempo) */}
+          {verHistorial && chatId !== null && (
+            <div style={{
+              flex: "0 1 auto", maxHeight: "45%", overflowY: "auto",
+              background: "#fff", borderBottom: "1px solid #e2e8f0",
+              padding: "0.75rem 0.9rem",
+            }}>
+              <Timeline key={chatId} pedidoId={chatId} titulo="Historial del pedido" />
+            </div>
+          )}
 
           {/* Mensajes */}
           <div

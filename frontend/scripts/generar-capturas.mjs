@@ -125,6 +125,12 @@ async function main() {
   await a.getByText(/Asesor humano \(tú\)/).first().waitFor({ timeout: 30000 }).catch(() => {});
   await shot(a, "19-simulador-whatsapp");
 
+  // 20) Historial del pedido abierto en el simulador (línea de tiempo)
+  await a.getByRole("button", { name: "Ver historial del pedido" }).click();
+  await a.getByText("Historial del pedido").first().waitFor({ timeout: 15000 }).catch(() => {});
+  await a.getByText("Sin eventos registrados todavía.").first().waitFor({ timeout: 500 }).catch(() => {});
+  await shot(a, "20-historial-simulador");
+
   // 3) Sesión GERENTE (solo lectura)
   const ctxG = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const g = await ctxG.newPage();

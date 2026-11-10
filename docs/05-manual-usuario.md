@@ -141,6 +141,13 @@ punto es un período (día, semana o mes según la granularidad).
   - ⚪ **PENDIENTE** — aún no comienza.
 - **Entregas:** las entregas hechas para ese pedido (o la nota
   *"Sin entregas registradas"*).
+- **Línea de tiempo:** la historia completa del pedido en una sola
+  lista, de más reciente a más antigua: cuándo se ingresó, hitos
+  completados o atrasados, casos, imprevistos, entregas, alertas y los
+  mensajes clave (quejas, respuestas del asesor y avisos automáticos).
+  Cada evento trae su fecha y a qué caso o imprevisto pertenece.
+  La casilla **Ver todos los mensajes e interacciones**
+  agrega también las conversaciones normales del cliente.
 
 ---
 
@@ -473,6 +480,24 @@ pasados unos minutos.
 > 📌 Todo lo que escribas queda en **Comunicaciones** y, si hay caso, en
 > el historial del caso: es exactamente la misma información que ve tu
 > equipo en operación.
+
+### 13.3 Ver el historial del pedido en la conversación
+
+Puedes ver la historia del pedido sin salir del chat:
+
+1. Pulsa el botón **📋 Historial** del encabezado del chat (a la
+   derecha del nombre del cliente).
+2. Se abre la **línea de tiempo** del pedido arriba de los mensajes:
+   ingreso, hitos completados o atrasados, casos, imprevistos,
+   entregas, alertas y los mensajes clave — los más recientes
+   primero. Los chips de arriba resumen de un vistazo: mensajes,
+   casos abiertos, hitos atrasados, imprevistos y alertas.
+3. Marca **Ver todos los mensajes e interacciones** si quieres ver
+   también las conversaciones normales (la lista se recarga).
+4. Vuelve a pulsar **📋 Historial** para cerrarlo y recuperar todo el
+   espacio de los mensajes.
+
+![Historial del pedido en el simulador](capturas/20-historial-simulador.png)
 
 ---
 

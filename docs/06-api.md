@@ -122,9 +122,27 @@ el backend**, además de ocultar rutas en la UI.
 
 | Método | Ruta | Descripción | Rol |
 |---|---|---|---|
-| GET | `/pedidos` | Listar pedidos | OPERADOR+ |
+| GET | `/pedidos` | Listar pedidos (`estado`, `cliente_id`, `origen`, paginación) | OPERADOR+ |
 | GET | `/pedidos/{pedido_id}` | Detalle de pedido (con ítems) | OPERADOR+ |
 | GET | `/pedidos/{pedido_id}/full` | Pedido completo (ítems + hitos) | OPERADOR+ |
+| GET | `/pedidos/{pedido_id}/timeline` | Línea de tiempo fusionada del pedido | OPERADOR+ |
+
+**Línea de tiempo** (`GET /pedidos/{pedido_id}/timeline`): fusiona en una
+sola lista ordenada por fecha (más reciente primero) las fuentes del
+pedido — ingreso, hitos (completados/atrasados), mensajes, casos
+(apertura, primera respuesta, cierre), imprevistos, entregas y alertas.
+Solo lectura: no escribe datos ni dispara el motor de reglas.
+
+| Parámetro | Tipo | Por defecto | Descripción |
+|---|---|---|---|
+| `incluir_mensajes` | bool | `false` | `false` = solo eventos clave (quejas/escalamientos, respuestas del asesor y avisos con plantilla); `true` = todos los mensajes e interacciones |
+| `tipos` | string | — | Filtro por tipos separados por coma: `pedido,hito,mensaje,caso,imprevisto,entrega,alerta` (422 si hay tipos desconocidos) |
+| `desde` / `hasta` | fecha ISO (UTC) | — | Ventana de fechas de los eventos |
+| `limit` | int 1–500 | 200 | Máximo de eventos (los más recientes primero) |
+
+La respuesta incluye `resumen` (mensajes, mensajes clave, hitos
+atrasados, casos/imprevistos abiertos, alertas activas) y `eventos` con
+`{fecha, tipo, titulo, detalle, criticidad, ref_tipo, ref_id, autor}`.
 
 ### Ítems
 

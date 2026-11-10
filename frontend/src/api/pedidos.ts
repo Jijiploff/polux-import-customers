@@ -1,9 +1,14 @@
 import { api } from "./client";
-import type { Page, Pedido, PedidoDetail, PedidoFullDetail, Origen, EstadoPedido } from "../types/domain";
+import type { Page, Pedido, PedidoDetail, PedidoFullDetail, Timeline, Origen, EstadoPedido } from "../types/domain";
 
 export interface ListPedidosParams {
   estado?: EstadoPedido; cliente_id?: number; origen?: Origen;
   page?: number; size?: number;
+}
+
+export interface TimelineParams {
+  incluir_mensajes?: boolean;
+  tipos?: string;
 }
 
 export const pedidosApi = {
@@ -18,4 +23,11 @@ export const pedidosApi = {
   },
   detail: (id: number) => api.get<PedidoDetail>(`/pedidos/${id}`),
   full: (id: number) => api.get<PedidoFullDetail>(`/pedidos/${id}/full`),
+  timeline: (id: number, params: TimelineParams = {}) => {
+    const q = new URLSearchParams();
+    if (params.incluir_mensajes) q.set("incluir_mensajes", "true");
+    if (params.tipos) q.set("tipos", params.tipos);
+    const qs = q.toString();
+    return api.get<Timeline>(`/pedidos/${id}/timeline${qs ? `?${qs}` : ""}`);
+  },
 };

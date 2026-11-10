@@ -1,4 +1,6 @@
 const PALETTE: Record<string, { bg: string; fg: string }> = {
+  // Línea de tiempo (criticidad)
+  INFO: { bg: "#f1f5f9", fg: "#334155" },
   // Pedidos
   RECIBIDO: { bg: "#e0e7ff", fg: "#1e3a8a" },
   EN_PROCESO: { bg: "#dbeafe", fg: "#1d4ed8" },

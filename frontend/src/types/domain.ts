@@ -156,3 +156,34 @@ export interface KpiSnapshot {
   semaforo: "OPTIMO" | "ALERTA" | "CRITICO" | "SIN_DATOS";
   calculado_en: string;
 }
+
+// ---- Línea de tiempo (Fase H) ----
+export type TipoEventoTimeline =
+  | "pedido" | "hito" | "mensaje" | "caso" | "imprevisto" | "entrega" | "alerta";
+
+export interface TimelineEvento {
+  fecha: string;
+  tipo: TipoEventoTimeline;
+  titulo: string;
+  detalle?: string | null;
+  criticidad: "INFO" | "MEDIA" | "ALTA";
+  ref_tipo?: string | null;
+  ref_id?: number | null;
+  autor?: string | null;
+}
+
+export interface TimelineResumen {
+  mensajes: number;
+  mensajes_clave: number;
+  hitos_atrasados: number;
+  casos_abiertos: number;
+  imprevistos_abiertos: number;
+  alertas_activas: number;
+}
+
+export interface Timeline {
+  pedido_id: number;
+  resumen: TimelineResumen;
+  eventos: TimelineEvento[];
+  incluyendo_mensajes: boolean;
+}

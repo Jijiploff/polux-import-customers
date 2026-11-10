@@ -4,6 +4,7 @@ import { pedidosApi } from "../../api/pedidos";
 import { hitosApi } from "../../api/hitos";
 import { entregasApi } from "../../api/entregas";
 import { StatusBadge } from "../../components/StatusBadge";
+import { Timeline } from "../../components/Timeline";
 import { Loading } from "../../components/Loading";
 import { Modal } from "../../components/Modal";
 import { useAuth } from "../../auth/AuthContext";
@@ -94,6 +95,13 @@ export function PedidoDetailPage() {
           </table>
         </div>
       ))}
+
+      <h2>Línea de tiempo</h2>
+      <div style={{
+        background: "white", borderRadius: 8, padding: "1rem", marginBottom: "1rem",
+      }}>
+        <Timeline key={data.id} pedidoId={data.id} />
+      </div>
 
       <h2>Entregas</h2>
       <div style={{ background: "white", borderRadius: 8, padding: "1rem", marginBottom: "1rem" }}>
