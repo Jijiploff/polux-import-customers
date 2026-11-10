@@ -144,6 +144,9 @@ class FactComunicacion(Base, TimestampMixin):
     autor: Mapped[str] = mapped_column(Unicode(20), nullable=False)
     escalado: Mapped[bool] = mapped_column(Boolean, nullable=False)
     sentimiento: Mapped[str | None] = mapped_column(Unicode(20), nullable=True)
+    # Columna creada por la migración 0004; estaba ausente en el ORM y el
+    # fact_sync reventaba con `TypeError: 'operador_id' is an invalid keyword`.
+    operador_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
 
 class FactEscalamiento(Base, TimestampMixin):

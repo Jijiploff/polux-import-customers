@@ -17,10 +17,12 @@ from sqlalchemy import (
     DateTime,
     Enum as SAEnum,
     ForeignKey,
+    Index,
     Integer,
     Unicode,
     UnicodeText,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -129,6 +131,19 @@ class PlantillaMensaje(Base, TimestampMixin, AuditUserMixin):
 
 class Comunicacion(Base, TimestampMixin, AuditUserMixin):
     __tablename__ = "comunicacion"
+    __table_args__ = (
+        # SQL Server NO permite varios NULL en un constraint UNIQUE (a diferencia
+        # de PostgreSQL/MySQL). Sin el filtro, la segunda comunicación en cola
+        # (ambas con wamid NULL) revienta con error 23000 y se cae toda la
+        # cadena del motor de reglas. Índice único filtrado = unicidad solo
+        # cuando hay wamid real.
+        Index(
+            "uq_comunicacion_whatsapp_message_id",
+            "whatsapp_message_id",
+            unique=True,
+            mssql_where=text("whatsapp_message_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # FK a pedido: NO ACTION (evita ruta extra hacia pedido; las cascadas
@@ -161,7 +176,7 @@ class Comunicacion(Base, TimestampMixin, AuditUserMixin):
     )
     estado_entrega: Mapped[str | None] = mapped_column(Unicode(40), nullable=True)
     whatsapp_message_id: Mapped[str | None] = mapped_column(
-        Unicode(120), nullable=True, unique=True
+        Unicode(120), nullable=True
     )
     escalado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     # FK a caso_escalamiento: NO ACTION (rompe el ciclo con caso.comunicacion_origen_id)
@@ -178,6 +193,7 @@ class Comunicacion(Base, TimestampMixin, AuditUserMixin):
 
     pedido = relationship("Pedido")
     caso = relationship("CasoEscalamiento", foreign_keys=[caso_id])
+    plantilla = relationship("PlantillaMensaje")
 
 
 class Alerta(Base, TimestampMixin, AuditUserMixin):
