@@ -422,7 +422,8 @@ en el sistema. Sirve para comprobar cómo reaccionaría.
 **¿Qué es?** Una pantalla que imita una conversación real de WhatsApp
 (burbujas y lista de chats). Sirve para probar al agente de punta a
 punta y para que una persona responda desde la plataforma cuando el
-agente deriva un caso.
+agente deriva un caso. La pantalla se adapta al tamaño de la ventana:
+si es angosta, la lista de chats queda arriba y el hilo debajo.
 
 Disponible para **Administradores** y **Operadores** (menú
 **Simulador WhatsApp**):

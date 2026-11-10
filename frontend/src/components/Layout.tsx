@@ -57,17 +57,45 @@ export function Layout() {
   }, [roles]);
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", fontFamily: "system-ui" }}>
-      <aside style={{
+    <div className="lay-raiz" style={{ display: "flex", minHeight: "100vh", fontFamily: "system-ui" }}>
+      <style>{`
+        /* Menú lateral que se adapta a pantallas angostas (móvil/tablet) */
+        @media (max-width: 760px) {
+          .lay-raiz { flex-direction: column; }
+          .lay-side {
+            width: 100% !important;
+            flex-direction: row !important;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.15rem;
+            padding: 0.4rem 0.5rem !important;
+          }
+          .lay-brand { padding: 0.35rem 0.6rem !important; white-space: nowrap; }
+          .lay-nav { flex-direction: row !important; flex-wrap: wrap; }
+          .lay-nav a {
+            border-left: none !important;
+            border-bottom: 3px solid transparent !important;
+            padding: 0.45rem 0.65rem !important;
+            white-space: nowrap;
+          }
+          .lay-nav a[aria-current="page"] {
+            border-bottom-color: #93c5fd !important;
+            color: #93c5fd !important;
+          }
+          .lay-top { flex-wrap: wrap; gap: 0.5rem; }
+          .lay-main { padding: 1rem !important; }
+        }
+      `}</style>
+      <aside className="lay-side" style={{
         width: 240, background: "#0b1221", color: "white",
         display: "flex", flexDirection: "column", padding: "1rem 0",
       }}>
-        <div style={{ padding: "0 1.25rem 1rem", fontWeight: 700, fontSize: "1.1rem" }}>
+        <div className="lay-brand" style={{ padding: "0 1.25rem 1rem", fontWeight: 700, fontSize: "1.1rem" }}>
           <Link to="/" style={{ color: "white", textDecoration: "none" }}>
             Polux Import
           </Link>
         </div>
-        <nav style={{ display: "flex", flexDirection: "column" }}>
+        <nav className="lay-nav" style={{ display: "flex", flexDirection: "column" }}>
           {links.map((l) => (
             <NavLink
               key={l.to}
@@ -87,7 +115,7 @@ export function Layout() {
         </nav>
       </aside>
       <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        <header style={{
+        <header className="lay-top" style={{
           display: "flex", justifyContent: "space-between", alignItems: "center",
           padding: "0.75rem 1.5rem", background: "white",
           borderBottom: "1px solid #e2e8f0",
@@ -100,7 +128,7 @@ export function Layout() {
             <button onClick={() => { logout(); nav("/login"); }}>Salir</button>
           </div>
         </header>
-        <main style={{ flex: 1, padding: "1.5rem", background: "#f8fafc" }}>
+        <main className="lay-main" style={{ flex: 1, padding: "1.5rem", background: "#f8fafc" }}>
           <Outlet />
         </main>
       </div>

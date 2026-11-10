@@ -178,6 +178,40 @@ export function SimuladorPage() {
       <style>{`
         @keyframes polux-parpadeo { 0%, 80%, 100% { opacity: .2 } 40% { opacity: 1 } }
         .polux-punto { animation: polux-parpadeo 1.2s infinite; }
+
+        /* ---- Maquetación responsive del simulador ---- */
+        .sim-fila { display: flex; gap: 1rem; flex-wrap: wrap; align-items: stretch; }
+        .sim-panel {
+          display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+          background: white; border: 1px solid #e2e8f0; border-radius: 10px;
+          height: clamp(420px, calc(100vh - 270px), 680px);
+        }
+        .sim-lista { flex: 0 1 260px; }
+        .sim-chat { flex: 1 1 400px; }
+        .sim-cab { display: flex; align-items: center; justify-content: space-between;
+          gap: .5rem; min-width: 0; }
+        .sim-nombre { font-weight: 700; font-size: .95rem; min-width: 0;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sim-mens {
+          flex: 1; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: .9rem;
+          background: #efeae2;
+          background-image: radial-gradient(rgba(0,0,0,0.045) 1px, transparent 1px);
+          background-size: 18px 18px;
+        }
+        .sim-texto { overflow-wrap: anywhere; word-break: break-word; }
+        .sim-ideas { display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+          min-width: 0; padding-bottom: 5px; }
+        .sim-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;
+          min-width: 0; }
+        .sim-ta { flex: 1 1 180px; min-width: 0; resize: vertical; }
+        .sim-bloque { min-width: 0; }
+        @media (max-width: 980px) {
+          .sim-lista { flex: 1 1 100%; height: 190px; }
+          .sim-chat { flex: 1 1 100%;
+            height: clamp(500px, calc(100vh - 400px), 700px); }
+          /* en pantalla angosta se muestran 3 ideas para no comerse el hilo */
+          .sim-ideas button:nth-child(n+5) { display: none; }
+        }
       `}</style>
 
       <div style={{
@@ -203,13 +237,9 @@ export function SimuladorPage() {
         y responde tú desde la plataforma.
       </p>
 
-      <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "stretch" }}>
+      <div className="sim-fila">
         {/* ---------- Lista de chats ---------- */}
-        <aside style={{
-          flex: "0 1 300px", background: "white", border: "1px solid #e2e8f0",
-          borderRadius: 10, overflow: "hidden", display: "flex",
-          flexDirection: "column", minHeight: 420, maxHeight: 680,
-        }}>
+        <aside className="sim-panel sim-lista">
           <div style={{ padding: "0.7rem 0.8rem", borderBottom: "1px solid #e2e8f0" }}>
             <input
               value={filtro}
@@ -219,7 +249,7 @@ export function SimuladorPage() {
               aria-label="Buscar cliente o código"
             />
           </div>
-          <div style={{ overflowY: "auto", flex: 1 }}>
+          <div style={{ overflowY: "auto", overflowX: "hidden", flex: 1, minWidth: 0 }}>
             {cargandoChats && <div style={{ padding: "1rem" }}><Loading /></div>}
             {!cargandoChats && visibles.length === 0 && (
               <p style={{ padding: "1rem", color: "#94a3b8", fontSize: "0.85rem" }}>
@@ -256,7 +286,9 @@ export function SimuladorPage() {
                   </div>
                   <div style={{
                     fontSize: "0.78rem", color: "#475569", marginTop: 2,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    // una línea con puntos suspensivos: el texto corto no expande el ancho
+                    display: "-webkit-box", WebkitBoxOrient: "vertical",
+                    WebkitLineClamp: 1, overflow: "hidden",
                   }}>
                     {c.total_mensajes === 0
                       ? "Sin mensajes aún"
@@ -277,28 +309,27 @@ export function SimuladorPage() {
         </aside>
 
         {/* ---------- Conversación ---------- */}
-        <section style={{
-          flex: "1 1 460px", background: "white", border: "1px solid #e2e8f0",
-          borderRadius: 10, display: "flex", flexDirection: "column",
-          minHeight: 420, maxHeight: 680, overflow: "hidden",
-        }}>
+        <section className="sim-panel sim-chat">
           {/* Encabezado del chat */}
           <div style={{
             background: "#008069", color: "white", padding: "0.65rem 0.9rem",
-            display: "flex", justifyContent: "space-between",
-            alignItems: "center", gap: "0.5rem",
+            flexShrink: 0,
           }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>
-                {chatActivo ? chatActivo.cliente_nombre : "Selecciona un chat"}
+            <div className="sim-cab">
+              <div style={{ minWidth: 0 }}>
+                <div className="sim-nombre">
+                  {chatActivo ? chatActivo.cliente_nombre : "Selecciona un chat"}
+                </div>
+                <div style={{
+                  fontSize: "0.72rem", opacity: 0.85,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  {chatActivo
+                    ? `${chatActivo.codigo} · ${chatActivo.estado_pedido.replace(/_/g, " ").toLowerCase()}`
+                    : "Lista de conversaciones a la izquierda"}
+                </div>
               </div>
-              <div style={{ fontSize: "0.72rem", opacity: 0.85 }}>
-                {chatActivo
-                  ? `${chatActivo.codigo} · ${chatActivo.estado_pedido.replace(/_/g, " ").toLowerCase()}`
-                  : "Lista de conversaciones a la izquierda"}
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {chatActivo?.caso_abierto_id && (
                 <Chip color="#fee2e2" texto="#b91c1c">
                   Caso #{chatActivo.caso_abierto_id} · {chatActivo.caso_abierto_motivo}
@@ -307,19 +338,13 @@ export function SimuladorPage() {
               {chatActivo?.asesor_reciente && (
                 <Chip color="#dbeafe" texto="#1d4ed8">Asesor respondiendo</Chip>
               )}
+              </div>
             </div>
           </div>
 
           {/* Mensajes */}
           <div
-            style={{
-              flex: 1, overflowY: "auto", padding: "0.9rem",
-              background: "#efeae2",
-              backgroundImage:
-                "radial-gradient(rgba(0,0,0,0.045) 1px, transparent 1px)",
-              backgroundSize: "18px 18px",
-              minHeight: 260,
-            }}
+            className="sim-mens"
           >
             {cargandoHilo && hilo.length === 0 && (
               <div style={{ padding: "1rem" }}><Loading /></div>
@@ -369,7 +394,7 @@ export function SimuladorPage() {
                             ? "Asesor humano (tú)"
                             : "Agente IA"}
                       </div>
-                      <div style={{ fontSize: "0.88rem", whiteSpace: "pre-wrap" }}>
+                      <div className="sim-texto" style={{ fontSize: "0.88rem", whiteSpace: "pre-wrap" }}>
                         {m.contenido}
                       </div>
                       <div style={{
@@ -445,9 +470,9 @@ export function SimuladorPage() {
 
           {/* Última decisión del agente */}
           {(ultimo || aviso) && (
-            <div style={{
+            <div className="sim-bloque" style={{
               borderTop: "1px solid #e2e8f0", background: "#f8fafc",
-              padding: "0.55rem 0.8rem", fontSize: "0.8rem",
+              padding: "0.55rem 0.8rem", fontSize: "0.8rem", flexShrink: 0,
             }}>
               {aviso && (
                 <div style={{ color: "#166534", marginBottom: 4 }}>✅ {aviso}</div>
@@ -507,11 +532,8 @@ export function SimuladorPage() {
           )}
 
           {/* Redacción */}
-          <div style={{ borderTop: "1px solid #e2e8f0", padding: "0.6rem 0.8rem" }}>
-            <div style={{
-              display: "flex", gap: 6, overflowX: "auto",
-              paddingBottom: 5, alignItems: "center",
-            }}>
+          <div className="sim-bloque" style={{ borderTop: "1px solid #e2e8f0", padding: "0.6rem 0.8rem", flexShrink: 0 }}>
+            <div className="sim-ideas">
               <span style={{ fontSize: "0.7rem", color: "#94a3b8", whiteSpace: "nowrap" }}>
                 Ideas:
               </span>
@@ -532,7 +554,7 @@ export function SimuladorPage() {
               ))}
             </div>
 
-            <form onSubmit={enviar} style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+            <form onSubmit={enviar} className="sim-form">
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
                   Responder como:
@@ -578,10 +600,10 @@ export function SimuladorPage() {
                     ? "Escribe como si fueras el cliente…"
                     : "Escribe la respuesta del asesor…"
                 }
+                className="sim-ta"
                 aria-label={modo === "cliente"
                   ? "Mensaje del cliente"
                   : "Respuesta del asesor"}
-                style={{ flex: 1, resize: "vertical", minWidth: 200 }}
               />
 
               <button
