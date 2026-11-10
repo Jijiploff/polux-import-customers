@@ -56,10 +56,8 @@ def _mk_pedido(db, phone: str = "+51987000123") -> Pedido:
 
 
 def _cleanup(db, pedido_id):
-    db.execute(delete(Comunicacion).where(Comunicacion.pedido_id == pedido_id))
-    db.execute(delete(PedidoItem).where(PedidoItem.pedido_id == pedido_id))
-    db.execute(delete(Pedido).where(Pedido.id == pedido_id))
-    db.commit()
+    from tests.db_utils import cleanup_pedido
+    cleanup_pedido(db, pedido_id)
 
 
 def test_verification_ok(client):

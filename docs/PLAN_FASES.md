@@ -130,7 +130,7 @@ estado estable (o al terminar un bloque de documentación).
 | **B. Arreglos KPI** | B1: umbrales leídos de `dim_kpi`. B2: filtros conectados en las 4 series (o documentados como no soportados) | Editar umbral en Admin cambia el semáforo; filtros afectan la serie | ✅ (2026-11-09) |
 | **Docs II** | `02-flujos.md`, `05-manual-usuario.md` (con capturas), `06-api.md`, `README.md` reparado | Manual completo por rol con capturas del sistema poblado | ✅ |
 | **C. UI del agente** | Página del agente IA + botones crear caso/imprevisto/comunicación (C1-C4) | Flujo completo desde la UI sin tocar la API a mano | ✅ |
-| **T. Suite de tests** | Reparar los ~13 tests rotos: aislamiento de BD (o DB de test separada), orden de teardown por FKs, `datetime.date` vs datetime con tz, ruta `/`, validación de firma de webhook | `pytest -q` en verde | ⬜ |
+| **T. Suite de tests** | Reparar los ~13 tests rotos: aislamiento de BD (o DB de test separada), orden de teardown por FKs, `datetime.date` vs datetime con tz, ruta `/`, validación de firma de webhook | `pytest -q` en verde | ✅ (2026-11-10) — 90 tests verdes y repetibles (2 corridas, cero residuo en BD) |
 | **C2 (posterior)** | Canal Telegram (definido en `04-agente.md` durante Docs I) | Demo del agente respondiendo por Telegram | ⏳ futuro |
 
 ---
@@ -179,4 +179,5 @@ redacta y escala — **la IA jamás inventa fechas ni calcula KPIs (eso es
 | B · Arreglos KPI (umbrales + filtros) | ✅ Completo (2026-11-09) — semáforos leen `dim_kpi` (probado: editar umbral cambia el semáforo); los 7 KPIs aplican producto/origen/operador |
 | Docs II (flujos, manual, API, README) | ✅ Completada (2026-11-10) — `02-flujos.md`, `05-manual-usuario.md` (18 capturas), `06-api.md`, README; fixes rate-limit/CORS/KPI global |
 | C · UI del agente (C1-C4) | ✅ Completa (2026-11-10) — página `/agente` + botones crear caso/imprevisto/comunicación; verificación e2e 10/10; build y tests del frontend en verde |
+| T · Suite de tests | ✅ Completa (2026-11-10) — de 17 fallas + 2 errores a **90 tests en verde**; repetible sin residuo en BD (2 corridas con conteos idénticos) |
 | C2 · Canal Telegram | ⏳ Futuro |

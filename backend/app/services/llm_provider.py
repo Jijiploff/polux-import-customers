@@ -114,6 +114,10 @@ _MOCK_KEYWORDS: list[tuple[Intent, tuple[str, ...]]] = [
 _MOCK_NEGATIVE = (
     "pésimo", "pesimo", "estafa", "molesto", "indignado", "harto",
     "reembolso", "devolución", "devolucion", "nunca", "horrible", "asco",
+    # Daño/defecto siempre implica malestar del cliente (coherente con el
+    # prompt: "Producto dañado, roto, no funciona → DAÑO (sentiment NEGATIVO)")
+    "roto", "rota", "dañado", "dañada", "quebrado", "quebrada",
+    "golpeado", "golpeada", "no funciona", "defectuoso", "defectuosa",
 )
 
 

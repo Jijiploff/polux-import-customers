@@ -135,14 +135,13 @@ class WhatsAppService:
     # Verificación de firma HMAC-SHA256
     # =====================================================================
     def verify_signature(self, raw_body: bytes, signature_header: str) -> bool:
-        if not self.app_secret:
-            # Si no hay secret configurado, rechazar (fail-closed) salvo modo dry_run
-            if self.dry_run:
-                logger.warning("whatsapp_signature_skip_dry_run")
-                return True
-            logger.error("whatsapp_app_secret_missing")
-            return False
+        # Fail-closed: sin cabecera de firma o sin App Secret no se puede
+        # validar la autenticidad del remitente → se rechaza siempre.
         if not signature_header or not signature_header.startswith("sha256="):
+            logger.warning("whatsapp_signature_missing")
+            return False
+        if not self.app_secret:
+            logger.error("whatsapp_app_secret_missing")
             return False
         expected = "sha256=" + hmac.new(
             self.app_secret.encode("utf-8"), raw_body, hashlib.sha256

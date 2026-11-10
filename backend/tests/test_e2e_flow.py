@@ -23,6 +23,15 @@ from app.services.rule_engine import RuleEngine
 from app.schemas.entrega import ConformidadItemIn, EntregaCreate
 
 
+@pytest.fixture
+def db():
+    s = SessionLocal()
+    try:
+        yield s
+    finally:
+        s.close()
+
+
 def _mk(db):
     suf = uuid.uuid4().hex[:6]
     cli = Cliente(nombre=f"Cliente {suf}", telefono_whatsapp=f"+5199{suf}",
@@ -59,23 +68,8 @@ def _mk(db):
 
 
 def _cleanup(db, pedido_id):
-    db.execute(delete(FactEntrega).where(FactEntrega.pedido_id == pedido_id))
-    db.execute(delete(Conformidad).where(Conformidad.entrega_item_id.in_(
-        select(EntregaItem.id).where(EntregaItem.entrega_id.in_(
-            select(Entrega.id).where(Entrega.pedido_id == pedido_id)))))
-    )
-    db.execute(delete(EntregaItem).where(EntregaItem.entrega_id.in_(
-        select(Entrega.id).where(Entrega.pedido_id == pedido_id)))
-    )
-    db.execute(delete(Entrega).where(Entrega.pedido_id == pedido_id))
-    db.execute(delete(CasoEscalamiento).where(CasoEscalamiento.pedido_id == pedido_id))
-    db.execute(delete(Comunicacion).where(Comunicacion.pedido_id == pedido_id))
-    db.execute(delete(Imprevisto).where(Imprevisto.pedido_id == pedido_id))
-    db.execute(delete(ItemHito).where(ItemHito.pedido_item_id.in_(
-        select(PedidoItem.id).where(PedidoItem.pedido_id == pedido_id))))
-    db.execute(delete(PedidoItem).where(PedidoItem.pedido_id == pedido_id))
-    db.execute(delete(Pedido).where(Pedido.id == pedido_id))
-    db.commit()
+    from tests.db_utils import cleanup_pedido
+    cleanup_pedido(db, pedido_id)
 
 
 def test_e2e_flujo_completo(db):

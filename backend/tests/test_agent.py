@@ -19,6 +19,7 @@ from app.services.llm_provider import (
     ClassificationResult, Intent, LLMProvider, MockProvider, Sentiment,
     TipoMensajeEntrante,
 )
+from tests.db_utils import cleanup_pedido as _cleanup
 
 
 @pytest.fixture(autouse=True)
@@ -65,15 +66,6 @@ def _mk_pedido(db, *, suffix: str | None = None) -> Pedido:
     db.commit()
     db.refresh(ped)
     return ped
-
-
-def _cleanup(db, pedido_id: int):
-    db.execute(delete(CasoEscalamiento).where(CasoEscalamiento.pedido_id == pedido_id))
-    db.execute(delete(Imprevisto).where(Imprevisto.pedido_id == pedido_id))
-    db.execute(delete(Comunicacion).where(Comunicacion.pedido_id == pedido_id))
-    db.execute(delete(PedidoItem).where(PedidoItem.pedido_id == pedido_id))
-    db.execute(delete(Pedido).where(Pedido.id == pedido_id))
-    db.commit()
 
 
 # --------- Clasificación ---------

@@ -12,6 +12,7 @@ from app.models import (
 )
 from app.services.pedido_service import get_pedido
 from app.services.rule_engine import RuleEngine
+from tests.db_utils import cleanup_pedido, crear_pedido_listo
 
 
 @pytest.fixture
@@ -60,11 +61,8 @@ def _mk(db):
 
 
 def _cleanup(db, pedido_id):
-    db.execute(delete(ItemHito).where(ItemHito.pedido_item_id.in_(
-        select(PedidoItem.id).where(PedidoItem.pedido_id == pedido_id))))
-    db.execute(delete(PedidoItem).where(PedidoItem.pedido_id == pedido_id))
-    db.execute(delete(Pedido).where(Pedido.id == pedido_id))
-    db.commit()
+    from tests.db_utils import cleanup_pedido
+    cleanup_pedido(db, pedido_id)
 
 
 def test_run_all_detecta_atrasos(db):
@@ -97,62 +95,72 @@ def test_get_pedido_carga_hito_para_serializer(db):
 
 def test_no_se_puede_cerrar_caso_sin_primera_accion(client, auth):
     """Regla de negocio: cierre de caso exige primera acción humana registrada."""
-    r = client.get("/api/v1/pedidos?size=1", headers=auth["operador"])
-    items = r.json().get("items", [])
-    if not items:
-        return
-    pid = items[0]["id"]
-    caso = client.post(
-        "/api/v1/casos",
-        headers=auth["operador"],
-        json={"pedido_id": pid, "motivo": "RECLAMO",
-              "descripcion": "test cierre", "prioridad": "ALTA"},
-    )
-    assert caso.status_code == 200
-    cid = caso.json()["id"]
+    # Pedido de prueba propio (no ensuciar ni depender de los pedidos demo)
+    db = SessionLocal()
+    try:
+        ped, _, _ = crear_pedido_listo(db)
+        pid = ped.id
+    finally:
+        db.close()
+    try:
+        caso = client.post(
+            "/api/v1/casos",
+            headers=auth["operador"],
+            json={"pedido_id": pid, "motivo": "RECLAMO",
+                  "descripcion": "test cierre", "prioridad": "ALTA"},
+        )
+        assert caso.status_code == 200
+        cid = caso.json()["id"]
 
-    r_cierre = client.patch(
-        f"/api/v1/casos/{cid}",
-        headers=auth["operador"],
-        json={"estado": "CERRADO"},
-    )
-    assert r_cierre.status_code == 409
-    assert "primera acción" in r_cierre.json()["detail"]
+        r_cierre = client.patch(
+            f"/api/v1/casos/{cid}",
+            headers=auth["operador"],
+            json={"estado": "CERRADO"},
+        )
+        assert r_cierre.status_code == 409
+        assert "primera acción" in r_cierre.json()["detail"]
 
-    # Con primera acción sí se puede cerrar
-    client.patch(f"/api/v1/casos/{cid}", headers=auth["operador"],
-                 json={"registrar_primera_accion": True})
-    r2 = client.patch(f"/api/v1/casos/{cid}", headers=auth["operador"],
-                      json={"estado": "CERRADO"})
-    assert r2.status_code == 200
-    assert r2.json()["estado"] == "CERRADO"
+        # Con primera acción sí se puede cerrar
+        client.patch(f"/api/v1/casos/{cid}", headers=auth["operador"],
+                     json={"registrar_primera_accion": True})
+        r2 = client.patch(f"/api/v1/casos/{cid}", headers=auth["operador"],
+                          json={"estado": "CERRADO"})
+        assert r2.status_code == 200
+        assert r2.json()["estado"] == "CERRADO"
+    finally:
+        db = SessionLocal()
+        try:
+            cleanup_pedido(db, pid)
+        finally:
+            db.close()
 
 
 def test_entrega_parcial_por_otro_usuario_requiere_admin(client, auth):
     """Bug #4: operador no puede autorizar en nombre de un tercero."""
-    r = client.get("/api/v1/pedidos?size=1", headers=auth["operador"])
-    items = r.json().get("items", [])
-    if not items:
-        return
-    pid = items[0]["id"]
-    # Forzamos ítems LISTO
-    detalle = client.get(f"/api/v1/pedidos/{pid}/full", headers=auth["operador"]).json()
-    for it in detalle["items"]:
-        client.patch(f"/api/v1/items/{it['id']}/estado",
-                     headers=auth["operador"],
-                     json={"estado": "LISTO_PARA_ENTREGA"})
-    item_id = detalle["items"][0]["id"]
-
-    r_bad = client.post(
-        "/api/v1/entregas",
-        headers=auth["operador"],
-        json={
-            "pedido_id": pid, "tipo": "PARCIAL", "modalidad": "DOMICILIO",
-            "fecha_programada": datetime.utcnow().isoformat(),
-            "pedido_item_ids": [item_id],
-            "autorizada_por_id": 99999,   # usuario distinto
-            "fecha_autorizacion": datetime.utcnow().isoformat(),
-            "motivo_parcial": "excepción",
-        },
-    )
-    assert r_bad.status_code in (400, 403)
+    # Pedido de prueba propio, ítem ya LISTO_PARA_ENTREGA
+    db = SessionLocal()
+    try:
+        ped, item, _ = crear_pedido_listo(db)
+        pid, item_id = ped.id, item.id
+    finally:
+        db.close()
+    try:
+        r_bad = client.post(
+            "/api/v1/entregas",
+            headers=auth["operador"],
+            json={
+                "pedido_id": pid, "tipo": "PARCIAL", "modalidad": "DOMICILIO",
+                "fecha_programada": datetime.utcnow().isoformat(),
+                "pedido_item_ids": [item_id],
+                "autorizada_por_id": 99999,   # usuario distinto
+                "fecha_autorizacion": datetime.utcnow().isoformat(),
+                "motivo_parcial": "excepción",
+            },
+        )
+        assert r_bad.status_code in (400, 403)
+    finally:
+        db = SessionLocal()
+        try:
+            cleanup_pedido(db, pid)
+        finally:
+            db.close()

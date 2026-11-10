@@ -19,7 +19,8 @@
 - **B ✅** — umbrales de `dim_kpi` + filtros en las 7 series (commit `de7f10c`)
 - **Docs II ✅** — `02-flujos.md` (8 diagramas), `05-manual-usuario.md` (18 capturas), `06-api.md`, README; fixes rate-limit/CORS/KPI global (commit `50dd648`)
 - **C ✅** — página `/agente` (simulador + métricas + test de clasificación, menú ADMIN/OPERADOR) + botones **+ Nuevo caso / + Nuevo imprevisto / + Nuevo mensaje**; verificación e2e 10/10 (`frontend/scripts/verificar-fase-c.mjs`, temporal, no versionado); build `npm run build` y `npm test` en verde (fixes: types vitest/globals, specs e2e fuera de vitest, token en test Alertas, replaceAll, null-check NuevaEntrega); manual 05 ampliado (§12 agente + capturas 17/18)
-- **Siguiente**: Fase T (~13 tests backend preexistentes: aislamiento BD compartida, teardowns FK, `datetime.date` sin tz en test_kpis_serie, `GET /` 404, firma webhook no rechaza) — baseline verificado: fallaban ANTES de los fixes
+- **T ✅** — de 17 fallas + 2 errores a **90 tests en verde** y repetibles (2 corridas seguidas, conteos de BD idénticos, cero residuo). Fixes: `tests/db_utils.py` nuevo (`cleanup_pedido` con orden FK seguro + circularidad `comunicacion.caso_id ↔ caso` + borrado de cliente huérfano; `crear_pedido_listo`); cleanups centralizados en 8 archivos de test; fixture `db` añadido a `test_e2e_flow`; `date`→`datetime` en `test_kpis_serie`; 5 tests dejaron de operar sobre el "primer pedido" (demo cerrado → 409) y usan pedido propio; `verify_signature` fail-closed (sin bypass dry_run); `MockProvider` marca daño como NEGATIVO; `GET /` responde; `.env.example` con verify token coherente (`polux-verify-token`) y sin claves duplicadas muertas. Residuo histórico de la BD (13 pedidos, 70 clientes huérfanos, casos/imprevistos de test sobre la demo) purgado
+- **Siguiente**: todas las fases del plan completas (C2 Telegram = futuro opcional)
 - **C2 futuro**: Telegram (definido en 04-agente.md); n8n descartado (justificado en doc); LLM = Gemini vía endpoint OpenAI-compatible (solo `.env`)
 
 ## Bugs encontrados y CORREGOS (commiteados con Fase A)
@@ -30,7 +31,7 @@
 ## Fase A — datos demo (script `backend/scripts/demo_dashboard_data.py`)
 - Idempotente (sale si ya hay `entrega`); cubre: hitos completados con notif controlada (9/10 oportunas), 4 comms entrantes (3 consultas + 1 reclamo), caso RECLAMO resuelto (1ª acción 3.5h), 2 imprevistos (resuelto 3d + abierto), corre RuleEngine + Outbox + fact_sync, entrega COMPLETA (p1, conforme) + PARCIAL autorizada ADMIN (p2, con observación)
 - Resultado `/api/v1/dashboard/resumen`: actualizacion_cliente 90% ALERTA · resolucion_automatica 75% ALERTA · tiempo_respuesta 3.5h OPTIMO · entregas_a_tiempo 100% OPTIMO · sin_observaciones 50% CRITICO · parciales 50% CRITICO · imprevistos por_tipo=1
-- Estado BD: 3 pedidos (p1 CERRADO, p2 con parcial+imprevisto, p3 en curso), ~14 comms (SENT+entrantes), alertas 2, casos 3, fact_* poblados
+- Estado BD: 3 pedidos (p1 CERRADO, p2 con parcial+imprevisto, p3 en curso), 10 comms, alertas 2, casos 3, imprevistos 2, fact_* poblados (fh=10, fc=13)
 - Scheduler OK: `rule_engine_run_ok`, outbox enviando, `fact_sync_ok`
 
 ## Decisiones de diseño (respuesta del usuario)
@@ -41,4 +42,4 @@
 - Commits por fase estable
 
 ## Criterio de fase estable
-Dashboard con valores ✅ (Fase A) → commitear → Docs I → B → Docs II → C (✅) → T
+Dashboard con valores ✅ (Fase A) → commitear → Docs I → B → Docs II → C → **T ✅ (2026-11-10): plan completo**

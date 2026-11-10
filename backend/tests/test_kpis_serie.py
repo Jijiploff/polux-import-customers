@@ -1,5 +1,5 @@
 """Pruebas de serie temporal y validación de KPIs (Fase 7)."""
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import uuid
 
 import pytest
@@ -13,6 +13,7 @@ from app.models import (
     Conformidad, ResultadoConformidad,
 )
 from app.services.fact_sync_service import FactSyncService
+from tests.db_utils import cleanup_pedido
 
 
 @pytest.fixture
@@ -32,8 +33,9 @@ def _mk_pedido_con_hito_completado(db, *, dias_atraso=0, notificado=True):
         codigo=f"PD-KPI-{suf}", cliente_id=cli.id,
         estado_ingreso=EstadoIngreso.PRIMER_PAGO_VERIFICADO,
         estado_actual=EstadoPedido.EN_PROCESO,
-        fecha_ingreso=date.today() - timedelta(days=5),
-        fecha_prometida=date.today() + timedelta(days=5),
+        # Las columnas de pedido/item_hito son DateTime (no Date)
+        fecha_ingreso=datetime.utcnow() - timedelta(days=5),
+        fecha_prometida=datetime.utcnow() + timedelta(days=5),
         modalidad_entrega=ModalidadEntrega.DOMICILIO,
     )
     db.add(ped); db.flush()
@@ -48,12 +50,12 @@ def _mk_pedido_con_hito_completado(db, *, dias_atraso=0, notificado=True):
         db.add(hito); db.flush()
     ih = ItemHito(
         pedido_item_id=item.id, hito_id=hito.id,
-        fecha_prevista=date.today() - timedelta(days=3),
-        fecha_real=date.today() - timedelta(days=2),
+        fecha_prevista=datetime.utcnow() - timedelta(days=3),
+        fecha_real=datetime.utcnow() - timedelta(days=2),
         estado="COMPLETADO",
         dias_atraso=dias_atraso,
         notificado_cliente=notificado,
-        fecha_notificacion=(date.today() - timedelta(days=2)) if notificado else None,
+        fecha_notificacion=(datetime.utcnow() - timedelta(days=2)) if notificado else None,
     )
     db.add(ih)
     db.commit()
@@ -62,34 +64,7 @@ def _mk_pedido_con_hito_completado(db, *, dias_atraso=0, notificado=True):
 
 
 def _cleanup(db, pedido_id):
-    from app.models import (
-        FactHitoPedido, FactComunicacion, FactEntrega, FactEscalamiento, FactImprevisto,
-    )
-    db.execute(delete(FactHitoPedido).where(FactHitoPedido.pedido_id == pedido_id))
-    db.execute(delete(FactComunicacion).where(FactComunicacion.pedido_id == pedido_id))
-    db.execute(delete(FactEntrega).where(FactEntrega.pedido_id == pedido_id))
-    db.execute(delete(Conformidad).where(
-        Conformidad.entrega_item_id.in_(
-            select(EntregaItem.id).where(
-                EntregaItem.entrega_id.in_(
-                    select(Entrega.id).where(Entrega.pedido_id == pedido_id)
-                )
-            )
-        )
-    ))
-    db.execute(delete(EntregaItem).where(
-        EntregaItem.entrega_id.in_(
-            select(Entrega.id).where(Entrega.pedido_id == pedido_id)
-        )
-    ))
-    db.execute(delete(Entrega).where(Entrega.pedido_id == pedido_id))
-    db.execute(delete(Comunicacion).where(Comunicacion.pedido_id == pedido_id))
-    db.execute(delete(ItemHito).where(ItemHito.pedido_item_id.in_(
-        select(PedidoItem.id).where(PedidoItem.pedido_id == pedido_id)
-    )))
-    db.execute(delete(PedidoItem).where(PedidoItem.pedido_id == pedido_id))
-    db.execute(delete(Pedido).where(Pedido.id == pedido_id))
-    db.commit()
+    cleanup_pedido(db, pedido_id)
 
 
 def test_fact_sync_puebla_fact_hito(db):

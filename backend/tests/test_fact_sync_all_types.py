@@ -48,29 +48,8 @@ def _mk_pedido(db):
 
 
 def _cleanup(db, pedido_id):
-    for tbl in (FactHitoPedido, FactComunicacion, FactEntrega, FactEscalamiento, FactImprevisto):
-        db.execute(delete(tbl).where(tbl.pedido_id == pedido_id))
-    db.execute(delete(Conformidad).where(
-        Conformidad.entrega_item_id.in_(
-            select(EntregaItem.id).where(
-                EntregaItem.entrega_id.in_(
-                    select(Entrega.id).where(Entrega.pedido_id == pedido_id)
-                )
-            )
-        )
-    ))
-    db.execute(delete(EntregaItem).where(EntregaItem.entrega_id.in_(
-        select(Entrega.id).where(Entrega.pedido_id == pedido_id)
-    )))
-    db.execute(delete(Entrega).where(Entrega.pedido_id == pedido_id))
-    db.execute(delete(Comunicacion).where(Comunicacion.pedido_id == pedido_id))
-    db.execute(delete(Imprevisto).where(Imprevisto.pedido_id == pedido_id))
-    db.execute(delete(ItemHito).where(ItemHito.pedido_item_id.in_(
-        select(PedidoItem.id).where(PedidoItem.pedido_id == pedido_id)
-    )))
-    db.execute(delete(PedidoItem).where(PedidoItem.pedido_id == pedido_id))
-    db.execute(delete(Pedido).where(Pedido.id == pedido_id))
-    db.commit()
+    from tests.db_utils import cleanup_pedido
+    cleanup_pedido(db, pedido_id)
 
 
 def test_fact_comunicacion(db):

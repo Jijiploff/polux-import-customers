@@ -57,3 +57,13 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 @app.get("/health", include_in_schema=False)
 def health():
     return {"status": "ok", "version": settings.APP_VERSION}
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return {
+        "name": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "docs": f"{settings.API_V1_PREFIX}/docs",
+        "health": "/health",
+    }

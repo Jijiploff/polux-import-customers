@@ -52,10 +52,8 @@ def _mk_com(db, pedido_id, *, canal="WHATSAPP", estado="PENDING"):
 
 
 def _cleanup(db, pedido_id):
-    db.execute(delete(Comunicacion).where(Comunicacion.pedido_id == pedido_id))
-    db.execute(delete(PedidoItem).where(PedidoItem.pedido_id == pedido_id))
-    db.execute(delete(Pedido).where(Pedido.id == pedido_id))
-    db.commit()
+    from tests.db_utils import cleanup_pedido
+    cleanup_pedido(db, pedido_id)
 
 
 def test_outbox_envia_pendiente():
