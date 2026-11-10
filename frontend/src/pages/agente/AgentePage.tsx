@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import {
   agentApi, type AgentMetrics, type AgentResult, type ClassifyTestResult,
 } from "../../api/agent";
@@ -111,6 +112,8 @@ export function AgentePage() {
         mensaje, responde con una plantilla y decide si escala a una persona.
         El mensaje siempre queda en <strong>Comunicaciones</strong>; la respuesta
         también cuando asocias el mensaje a un pedido.
+        ¿Quieres una conversación completa con burbujas y respuesta humana? Pasa por el{" "}
+        <Link to="/simulador">Simulador de WhatsApp</Link>.
       </p>
 
       {/* Métricas del agente */}

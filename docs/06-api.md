@@ -215,7 +215,10 @@ el backend**, además de ocultar rutas en la UI.
 | POST | `/agent/messages/incoming` | Procesa un mensaje entrante (simulación local) | autenticado |
 | GET | `/agent/provider` | Proveedor LLM activo (mock / gemini) | autenticado |
 | GET | `/agent/metrics` | Métricas agregadas del agente | autenticado |
-| POST | `/agent/test/classify` | Clasifica un texto sin ejecutar el flujo | ADMIN |
+| GET | `/agent/chats` | Bandeja del simulador: un chat por pedido (cliente, preview, caso abierto, asesor reciente) | autenticado |
+| GET | `/agent/thread?pedido_id=` | Hilo de conversación de un pedido (mensajes con clasificación y caso) | autenticado |
+| POST | `/agent/human-reply` | Responde como persona (asesor) en el hilo; marca el caso EN_PROCESO y el agente cede el paso | OPERADOR |
+| POST | `/agent/test/classify` | Clasifica un texto sin ejecutar el flujo (degrada al motor local si el LLM cae) | ADMIN |
 
 ### Operación manual (admin)
 

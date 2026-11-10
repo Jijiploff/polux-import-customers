@@ -133,7 +133,7 @@ estado estable (o al terminar un bloque de documentación).
 | **C. UI del agente** | Página del agente IA + botones crear caso/imprevisto/comunicación (C1-C4) | Flujo completo desde la UI sin tocar la API a mano | ✅ |
 | **T. Suite de tests** | Reparar los ~13 tests rotos: aislamiento de BD (o DB de test separada), orden de teardown por FKs, `datetime.date` vs datetime con tz, ruta `/`, validación de firma de webhook | `pytest -q` en verde | ✅ (2026-11-10) — 90 tests verdes y repetibles (2 corridas, cero residuo en BD) |
 | **G1. Gemini activo** | Activar el LLM real (`LLM_PROVIDER=openai` + endpoint Gemini), con cortesía con la cuota (ventana RPM, reposo tras 429, modelo respaldo, motor local) y tests aislados de la cuota | `GET /agent/provider` → `gemini` y clasificación real verificada; suite en verde sin gastar cuota | ✅ (2026-11-10) |
-| **G2. Simulador de chat WhatsApp** | Página que simula un chat de WhatsApp real: el agente recibe, clasifica, informa y toma acciones (caso/escalamiento); el humano responde desde la plataforma cuando el agente deriva | Flujo completo desde la UI (cliente → agente → escalamiento → respuesta humana) + manual y captura | ⏳ en curso |
+| **G2. Simulador de chat WhatsApp** | Página que simula un chat de WhatsApp real: el agente recibe, clasifica, informa y toma acciones (caso/escalamiento); el humano responde desde la plataforma cuando el agente deriva | Flujo completo desde la UI (cliente → agente → escalamiento → respuesta humana) + manual y captura | ✅ (2026-11-10) — `GET /agent/chats`, `GET /agent/thread`, `POST /agent/human-reply`; página `/simulador` (bandeja, burbujas, modos Cliente/Asesor); 5 tests nuevos (103 en verde) + 3 tests de UI; e2e 14/14; captura 19 y manual §13 |
 | **C2 (posterior)** | Canal Telegram (definido en `04-agente.md` durante Docs I) | Demo del agente respondiendo por Telegram | ⏳ futuro |
 
 ---
@@ -184,5 +184,5 @@ redacta y escala — **la IA jamás inventa fechas ni calcula KPIs (eso es
 | C · UI del agente (C1-C4) | ✅ Completa (2026-11-10) — página `/agente` + botones crear caso/imprevisto/comunicación; verificación e2e 10/10; build y tests del frontend en verde |
 | T · Suite de tests | ✅ Completa (2026-11-10) — de 17 fallas + 2 errores a **90 tests en verde**; repetible sin residuo en BD (2 corridas con conteos idénticos) |
 | G1 · Gemini activo | ✅ Completa (2026-11-10) — `LLM_PROVIDER=openai` + Gemini (`gemini-3.1-flash-lite`, respaldo `gemini-3.5-flash`); RateGuard (ventana RPM, reposo 429), motor local ante cualquier fallo; 8 tests nuevos (98 en verde) sin gastar cuota |
-| G2 · Simulador de chat WhatsApp | ⏳ En curso |
+| G2 · Simulador de chat WhatsApp | ✅ Completa (2026-11-10) — `/simulador` con bandeja de chats, hilo en burbujas, modos Cliente/Asesor, tarjeta de decisión y banner de escalamiento; `POST /agent/human-reply` (auditoría HUMANO, caso → EN_PROCESO, agente cede el paso 10 min); e2e 14/14, captura 19, manual §13 |
 | C2 · Canal Telegram | ⏳ Futuro |

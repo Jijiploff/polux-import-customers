@@ -329,3 +329,129 @@ def test_test_classify_endpoint_operador_denegado(client, auth):
         json={"contenido": "Hola"},
     )
     assert r.status_code == 403
+
+
+# --------- Simulador de chat WhatsApp (Fase G2) ---------
+def test_chats_y_thread_del_simulador(client, auth, db):
+    ped = _mk_pedido(db, suffix="sim1")
+    try:
+        # Mensaje de cliente por la API (la suite corre con motor local/mock)
+        r = client.post(
+            "/api/v1/agent/messages/incoming",
+            headers=auth["operador"],
+            json={"pedido_id": ped.id, "canal": "WHATSAPP", "contenido": "Hola"},
+        )
+        assert r.status_code == 200
+
+        # La bandeja muestra el chat con cliente, preview y conteo
+        r = client.get("/api/v1/agent/chats", headers=auth["operador"])
+        assert r.status_code == 200
+        chat = next((c for c in r.json() if c["pedido_id"] == ped.id), None)
+        assert chat is not None
+        assert chat["codigo"] == ped.codigo
+        assert chat["cliente_nombre"] == ped.cliente.nombre
+        assert chat["total_mensajes"] >= 2          # entrante + respuesta
+        assert chat["ultima_preview"]
+        assert chat["asesor_reciente"] is False
+
+        # El hilo devuelve los mensajes en orden cronológico
+        r = client.get(
+            f"/api/v1/agent/thread?pedido_id={ped.id}", headers=auth["operador"]
+        )
+        assert r.status_code == 200
+        hilo = r.json()
+        assert hilo[0]["autor"] == "CLIENTE"
+        assert hilo[-1]["autor"] == "AGENTE"
+        assert [m["id"] for m in hilo] == sorted(m["id"] for m in hilo)
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_thread_pedido_inexistente_devuelve_404(client, auth):
+    r = client.get("/api/v1/agent/thread?pedido_id=99999999", headers=auth["operador"])
+    assert r.status_code == 404
+
+
+def test_flujo_completo_agente_escala_y_humano_responde(client, auth, db):
+    """Cliente reclama → agente clasifica y escala → asesor responde →
+    el caso pasa a EN_PROCESO y el agente cede el paso a la persona."""
+    ped = _mk_pedido(db, suffix="sim2")
+    try:
+        # 1) Reclamo: el agente lo detecta, escala y abre caso
+        r = client.post(
+            "/api/v1/agent/messages/incoming",
+            headers=auth["operador"],
+            json={"pedido_id": ped.id,
+                  "contenido": "Esto es una estafa, quiero mi dinero"},
+        )
+        assert r.status_code == 200
+        res = r.json()
+        assert res["escalated"] is True
+        assert res["classification"]["intent"] == "RECLAMO"
+        caso_id = res["caso_id"]
+        assert caso_id
+
+        # 2) El asesor responde desde la plataforma
+        r = client.post(
+            "/api/v1/agent/human-reply",
+            headers=auth["operador"],
+            json={"pedido_id": ped.id,
+                  "contenido": "Hola, ya estamos revisando tu caso."},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["message"]["autor"] == "HUMANO"
+        assert body["message"]["estado_entrega"] == "SENT"
+        assert body["caso_id"] == caso_id
+        assert body["caso_estado"] == "EN_PROCESO"
+        assert body["aviso"]
+
+        # 3) El agente cede el paso: no responde mientras la persona esté activa
+        r = client.post(
+            "/api/v1/agent/messages/incoming",
+            headers=auth["operador"],
+            json={"pedido_id": ped.id, "contenido": "gracias"},
+        )
+        assert r.status_code == 200
+        assert r.json()["human_in_progress"] is True
+
+        # 4) El hilo muestra a los tres participantes con trazabilidad del caso
+        hilo = client.get(
+            f"/api/v1/agent/thread?pedido_id={ped.id}", headers=auth["operador"]
+        ).json()
+        assert {"CLIENTE", "AGENTE", "HUMANO"} <= {m["autor"] for m in hilo}
+        escalado = next(m for m in hilo if m["escalado"])
+        assert escalado["caso_id"] == caso_id
+        assert escalado["caso_motivo"] == "RECLAMO"
+
+        # La bandeja refleja que hay asesor reciente y caso en proceso
+        chat = next(
+            c for c in client.get("/api/v1/agent/chats", headers=auth["operador"]).json()
+            if c["pedido_id"] == ped.id
+        )
+        assert chat["asesor_reciente"] is True
+        assert chat["caso_abierto_id"] == caso_id
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_respuesta_humana_denegada_para_gerente(client, auth, db):
+    ped = _mk_pedido(db, suffix="sim3")
+    try:
+        r = client.post(
+            "/api/v1/agent/human-reply",
+            headers=auth["gerente"],
+            json={"pedido_id": ped.id, "contenido": "hola"},
+        )
+        assert r.status_code == 403
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_respuesta_humana_con_pedido_inexistente(client, auth):
+    r = client.post(
+        "/api/v1/agent/human-reply",
+        headers=auth["operador"],
+        json={"pedido_id": 99999999, "contenido": "hola"},
+    )
+    assert r.status_code == 404

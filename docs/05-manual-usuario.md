@@ -22,7 +22,8 @@
 10. [Administración (solo Admin)](#10-administración-solo-admin)
 11. [Qué puede ver cada rol](#11-puede-ver-cada-rol)
 12. [Hablar con el agente IA](#12-hablar-con-el-agente-ia)
-13. [Preguntas frecuentes](#13-preguntas-frecuentes)
+13. [Practicar en el simulador de WhatsApp](#13-practicar-en-el-simulador-de-whatsapp)
+14. [Preguntas frecuentes](#14-preguntas-frecuentes)
 
 ---
 
@@ -359,6 +360,7 @@ minutos:
 | Pedidos, hitos, entregas | ✅ | ✅ | ❌ |
 | Alertas, casos, imprevistos, comunicaciones | ✅ | ✅ | ❌ |
 | Agente IA (probar el asistente) | ✅ | ✅ | ❌ |
+| Simulador WhatsApp (practicar con el agente) | ✅ | ✅ | ❌ |
 | Usuarios, reglas, catálogos, operaciones | ✅ | ❌ | ❌ |
 
 El menú muestra solo las opciones a las que tienes acceso. Si necesitas
@@ -391,6 +393,10 @@ Disponible para **Administradores** y **Operadores** (menú
 Si el asunto es grave (un reclamo, por ejemplo), el agente lo marca
 como **escalado** y crea un **caso** para que lo atienda una persona.
 
+> 💡 ¿Prefieres practicar en una pantalla con **burbujas de WhatsApp**,
+> lista de chats y respuesta humana? Pasa a la sección
+> [13 · Practicar en el simulador de WhatsApp](#13-practicar-en-el-simulador-de-whatsapp).
+
 ### 12.2 Ver el resumen
 
 Las tarjetas de arriba muestran, en tiempo real:
@@ -411,7 +417,59 @@ en el sistema. Sirve para comprobar cómo reaccionaría.
 
 ---
 
-## 13. Preguntas frecuentes
+## 13. Practicar en el simulador de WhatsApp
+
+**¿Qué es?** Una pantalla que imita una conversación real de WhatsApp
+(burbujas y lista de chats). Sirve para probar al agente de punta a
+punta y para que una persona responda desde la plataforma cuando el
+agente deriva un caso.
+
+Disponible para **Administradores** y **Operadores** (menú
+**Simulador WhatsApp**):
+
+![Simulador de WhatsApp](capturas/19-simulador-whatsapp.png)
+
+### 13.1 Escribir como si fueras el cliente
+
+1. En el menú, haz clic en **Simulador WhatsApp**.
+2. En la lista de la izquierda elige un chat (cada pedido es una
+   conversación con su cliente) o **busca** por nombre o código.
+3. Deja seleccionado el modo **Cliente** y escribe un mensaje — por
+   ejemplo *«¿Dónde está mi pedido? ¿Cuándo llega?»* — o toca una de las
+   **Ideas** rápidas. Pulsa **Enviar** (o la tecla Enter).
+4. Aparece *«El agente está escribiendo…»* y, al terminar, su respuesta
+   en burbuja verde. Debajo verás la **Decisión del agente**: la
+   intención detectada, el sentimiento, la confianza, con qué motor
+   respondió y si derivó el caso a una persona.
+
+### 13.2 Cuando el agente deriva el caso a una persona
+
+Si el mensaje es un reclamo (o el agente no está seguro), verás una
+banda naranja en la conversación:
+
+> ⚠️ El agente derivó este caso a una persona · Caso #1128 · motivo
+> RECLAMO · prioridad ALTA · estado EN_PROCESO · ver casos
+
+1. Haz clic en **Responder como asesor** (o en el botón **Asesor
+   humano** de abajo).
+2. Escribe la respuesta tal como la diría un asesor y pulsa **Enviar**.
+3. Tu mensaje aparece con la etiqueta **Asesor humano (tú)** y queda
+   registrado con tu nombre: nadie más puede firmarlo por ti.
+4. En la lista de chats verás el sello **Asesor activo** y, si había un
+   caso abierto, el aviso *«Caso #… en proceso (registrada la primera
+   respuesta humana)»*.
+
+Mientras una persona esté respondiendo, **el agente se aparta** y no
+responde (para no pisar a quien está atendiendo); vuelve a actuar
+pasados unos minutos.
+
+> 📌 Todo lo que escribas queda en **Comunicaciones** y, si hay caso, en
+> el historial del caso: es exactamente la misma información que ve tu
+> equipo en operación.
+
+---
+
+## 14. Preguntas frecuentes
 
 **No puedo entrar — dice "Credenciales inválidas".**
 Revisa el correo y la contraseña (mayúsculas minúsculas). Si sigue

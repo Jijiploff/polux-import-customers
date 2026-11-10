@@ -239,6 +239,71 @@ flowchart LR
     M -->|observaciones| H[Caso revisable por humano]
 ```
 
+### 7.4 Simulador de chat WhatsApp (Fase G2)
+
+Página **`/simulador`** (menú *Simulador WhatsApp*, roles ADMIN y
+OPERADOR) para probar el agente de punta a punta con la apariencia de
+una conversación real de WhatsApp: lista de chats a la izquierda, hilo
+con burbujas y barra única de redacción con dos modos.
+
+**No crea tablas nuevas**: el hilo de conversación **es la tabla
+`comunicaciones` filtrada por `pedido_id`** (ya era el modelo de datos:
+cada pedido agrupa sus mensajes).
+
+| Pantalla | Endpoint | Qué hace |
+|---|---|---|
+| Lista de chats | `GET /agent/chats` | Todos los pedidos con cliente, último mensaje, número de mensajes, caso abierto y si hay asesor respondiendo |
+| Hilo | `GET /agent/thread?pedido_id=` | Mensajes ordenados con clasificación detectada, plantilla usada, estado de entrega y caso asociado |
+| Modo **Cliente** | `POST /agent/messages/incoming` | El flujo completo de §7.1: clasifica → responde o escala |
+| Modo **Asesor humano** | `POST /agent/human-reply` | Escribe la respuesta de la persona (ver más abajo) |
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Persona (modo Cliente)
+    participant S as /simulador
+    participant A as Agente (§7.1)
+    participant B as BD
+    participant H as Persona (modo Asesor)
+
+    P->>S: «Esto es una estafa, quiero mi dinero»
+    S->>A: POST /agent/messages/incoming
+    A->>B: comunicacion ENTRANTE (RECLAMO, NEGATIVO)
+    A->>A: Caso RECLAMO abierto (o reutilizado)
+    A->>B: plantilla de retención (outbox, PENDING)
+    A-->>S: classification + escalation_reason + caso_id
+    S-->>P: burbuja agente + banda «derivado a persona» + tarjeta de decisión
+
+    H->>S: modo Asesor → «Ya estamos revisando tu caso»
+    S->>A: POST /agent/human-reply
+    A->>B: comunicacion SALIENTE autor=HUMANO (SENT)
+    A->>B: caso → EN_PROCESO + fecha_primera_accion
+    A-->>S: aviso del caso
+    S-->>H: burbuja «Asesor humano (tú)» + sello «Asesor activo» en la bandeja
+
+    P->>S: «gracias» (modo Cliente)
+    S->>A: POST /agent/messages/incoming
+    A-->>S: human_in_progress=true (cede el paso a la persona)
+    S-->>P: «El agente no interviene: una persona respondió hace poco»
+```
+
+**Respuesta humana (`/agent/human-reply`, OPERADOR+):**
+
+- Queda como `autor=HUMANO`, canal WHATSAPP, `estado_entrega=SENT`
+  (la envía la plataforma, no la cola) y `created_by` del usuario real:
+  **auditoría completa, nadie puede firmar por otro** (§8).
+- Si hay caso abierto del pedido: se registra `fecha_primera_accion` y
+  pasa de `ABIERTO` a `EN_PROCESO`.
+- Activa el mismo cortapisa de §7.1 (`_human_in_progress`,
+  `AGENT_RECENT_HUMAN_RESPONSE_MINUTES=10`): durante ese lapso el agente
+  **no** responde y la UI lo indica, para no pisar a quien está atendiendo.
+
+**Cotas del LLM en la práctica:** cada mensaje de cliente puede costar
+hasta 4 llamadas (clasificar + redactar, cada una con reintento al modelo
+respaldo). El `RateGuard` de §5 limita eso a `LLM_RPM=5` por minuto; lo
+que exceda la ventana responde el motor local, y un 429 dispara el reposo
+de 60 s. Por eso la demo puede usarse sin agotar el plan gratuito.
+
 ---
 
 ## 8. Decisiones reservadas a humanos

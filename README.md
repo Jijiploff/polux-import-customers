@@ -49,12 +49,12 @@ docker compose exec -T backend python -m scripts.demo_dashboard_data
 
 ## Modo simulado vs productivo
 
-Por defecto el sistema corre **sin integraciones reales** (solo `.env`,
-el código no cambia):
+Solo cambia el `.env` (el código no cambia). Hoy **WhatsApp y Email
+corren en modo simulado**; el **LLM ya corre con Gemini en local**:
 
 | Integración | Default local | Productivo |
 |---|---|---|
-| LLM (agente) | `LLM_PROVIDER=mock` (clasificación por keywords) | `openai` + `LLM_BASE_URL` compatible (Gemini) + `LLM_API_KEY` |
+| LLM (agente) | **Gemini activo**: `LLM_PROVIDER=openai` + `LLM_BASE_URL` compatible (Gemini) + `LLM_MODEL=gemini-3.1-flash-lite` (respaldo `gemini-3.5-flash`); RateGuard respeta ~5 llamadas/min y cualquier fallo cae al motor local (mock). Los **tests** corren siempre en mock | otro `LLM_MODEL` o proveedor compatible OpenAI |
 | WhatsApp | `WHATSAPP_DRY_RUN=true` (envíos ficticios) | `WHATSAPP_ENABLED=true` + token de Meta |
 | Email | `EMAIL_PROVIDER=mock` | `resend` o `smtp` |
 

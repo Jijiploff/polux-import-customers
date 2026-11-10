@@ -171,7 +171,7 @@ polux-import-customers/
 | `kpis` | `/kpis` | Cálculo KPI, series temporales, validación SQL |
 | `dashboard` | `/dashboard` | `/resumen` (7 KPIs + semáforos) |
 | `admin` | `/admin` | `POST /run-rules`, `/sync-facts` (operación manual) |
-| `agent` | `/agent` | Agente IA: mensaje entrante, proveedor LLM, métricas |
+| `agent` | `/agent` | Agente IA: mensaje entrante, proveedor LLM, métricas, bandeja/hilo del simulador y respuesta humana (`/simulador`) |
 | `outbox` | `/outbox` | Estado de cola y `POST /run` (despacho manual) |
 | `webhooks` | `/webhooks` | Callback de WhatsApp (verificación + mensajes) |
 
