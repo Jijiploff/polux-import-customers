@@ -137,7 +137,7 @@ polux-import-customers/
 │   │   ├── models/             # SQLAlchemy: orders, delivery, comms, analytics, core
 │   │   ├── schemas/            # esquemas Pydantic (entrada/salida)
 │   │   └── services/           # lógica de negocio (16 servicios)
-│   ├── scripts/                # seed_data, test_data, demo_dashboard_data
+│   ├── scripts/                # seed_data, test_data, demo_dashboard_data, demo_conversations
 │   └── tests/                  # suite pytest
 └── frontend/
     └── src/

@@ -430,6 +430,12 @@ Disponible para **Administradores** y **Operadores** (menú
 
 ![Simulador de WhatsApp](capturas/19-simulador-whatsapp.png)
 
+> 📖 **Datos de ejemplo:** la lista ya trae **10 conversaciones** para
+> practicar: 4 con **quejas** (daños, demoras y cobros incorrectos que el
+> agente deriva a una persona), 4 de **seguimiento normal** del pedido y
+> 2 **positivas** (agradecimientos y felicitaciones). Así puedes ver
+> seguidos los tres casos de uso reales sin tener que escribirlos todos.
+
 ### 13.1 Escribir como si fueras el cliente
 
 1. En el menú, haz clic en **Simulador WhatsApp**.
