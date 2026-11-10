@@ -39,7 +39,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# En producción forzamos CORS a los orígenes explícitos; en dev se permite la lista.
+# Orden importante: CORS debe ser el middleware MÁS EXTERNO para que sus
+# cabeceras (incluido el 429 del rate limit) lleguen al navegador y para
+# que el preflight OPTIONS no consuma cuota de login.
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -47,8 +50,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.add_middleware(RateLimitMiddleware)
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 

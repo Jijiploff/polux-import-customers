@@ -17,7 +17,8 @@
 - **0 Plan ✅ / A Datos demo ✅** — commitear (pendiente al cortar)
 - **Docs I ⬜**: `01-arquitectura.md`, `03-modelo-er.md`, `04-agente.md` (Mermaid, en español)
 - **B ⬜**: umbrales KPI leídos de `dim_kpi` (hoy hardcodeados en `kpis.py::_semaphore`) + filtros de series ignorados en `kpi_service.py` (líneas ~107, 181, 188-249)
-- **Docs II ⬜**: `02-flujos.md` (8 diagramas), `05-manual-usuario.md` (audiencia: usuarios del cliente, con capturas), `06-api.md`, README truncado
+- **Docs II ✅**: `02-flujos.md` (8 diagramas), `05-manual-usuario.md` (12 tareas por rol con 16 capturas regeneradas con datos limpios), `06-api.md` (generado desde OpenAPI), README reescrito; fixes: rate-limit 429 con CORS + key por ruta completa, KPI 4 con valor global ponderado
+- **Siguiente**: Fase C (página del agente IA + botones crear caso/imprevisto/comunicación) → Fase T (~13 tests preexistentes)
 - **C ⬜**: UI agente IA + botones crear caso/imprevisto/comunicación (endpoints ya existen)
 - **T ⬜**: reparar ~13 tests rotos (aislamiento BD compartida, teardowns FK, `datetime.date` sin tz en test_kpis_serie, `GET /` 404, firma webhook no rechaza) — baseline verificado: fallaban ANTES de los fixes
 - **C2 futuro**: Telegram (definir en 04-agente.md); n8n descartado (justificar en doc); LLM = Gemini vía endpoint OpenAI-compatible (solo `.env`)

@@ -7,12 +7,13 @@ agent) para no penalizar las lecturas normales del dashboard.
 """
 from __future__ import annotations
 
+import re
 import time
 from collections import defaultdict, deque
 
-from fastapi import HTTPException, Request, status
+from fastapi import Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 # (max_peticiones, ventana_segundos) por prefijo de ruta
 _LIMITES: list[tuple[str, int, int]] = [
@@ -40,7 +41,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         max_req, ventana = limite
         ip = request.client.host if request.client else "unknown"
-        key = (ip, path.split("/")[3] if len(path.split("/")) > 3 else path)
+        # Clave por ruta completa (IDs → :id). Antes se usaba el segmento[3],
+        # lo que agrupaba /auth/login con /auth/me: cada recarga de página
+        # consumía la cuota de login y en 10 cargas el login devolvía 429.
+        key_path = re.sub(r"/\d+", "/:id", path)
+        key = (ip, key_path)
         ahora = time.monotonic()
         bucket = self._buckets[key]
 
@@ -49,9 +54,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             bucket.popleft()
 
         if len(bucket) >= max_req:
-            raise HTTPException(
-                status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Rate limit excedido ({max_req} por {ventana}s)",
+            # Se devuelve la respuesta (NO se lanza la excepción): esta
+            # ejecución ocurre POR ENCIMA del ExceptionMiddleware, y una
+            # excepción sin manejar llegaría al navegador como 500 sin
+            # cabeceras CORS → el frontend mostraría un error de CORS
+            # en vez del mensaje de rate limit.
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={"detail": f"Rate limit excedido ({max_req} por {ventana}s)"},
             )
         bucket.append(ahora)
         return await call_next(request)

@@ -119,17 +119,32 @@ def kpi_resolucion_imprevistos(db: Session = Depends(get_db)):
     rows = db.execute(text("SELECT * FROM vw_kpi_resolucion_imprevistos")).mappings().all()
     optimo, alerta, _critico, sentido = _umbrales(db, "TIEMPO_RESOLUCION_IMPREVISTOS")
     data = []
+    total_resueltos = 0
+    suma_ponderada = 0.0
     for r in rows:
         valor = float(r["kpi_dias_promedio"]) if r["kpi_dias_promedio"] is not None else None
+        n = int(r["imprevistos_resueltos"] or 0)
+        if valor is not None and n:
+            total_resueltos += n
+            suma_ponderada += valor * n
         data.append({
             "tipo": r["tipo"],
-            "imprevistos_resueltos": r["imprevistos_resueltos"],
+            "imprevistos_resueltos": n,
             "kpi_dias_promedio": valor,
             "semaforo": _semaphore(valor, sentido, optimo, alerta),
             "umbrales": {"optimo": optimo, "alerta": alerta},
         })
-    return {"codigo": "TIEMPO_RESOLUCION_IMPREVISTOS", "por_tipo": data,
-            "calculado_en": datetime.now(timezone.utc).isoformat()}
+    # Media global ponderada por tipo (la tarjeta del dashboard la lee en la raíz)
+    global_avg = round(suma_ponderada / total_resueltos, 2) if total_resueltos else None
+    return {
+        "codigo": "TIEMPO_RESOLUCION_IMPREVISTOS",
+        "imprevistos_resueltos": total_resueltos,
+        "kpi_dias_promedio": global_avg,
+        "semaforo": _semaphore(global_avg, sentido, optimo, alerta),
+        "umbrales": {"optimo": optimo, "alerta": alerta},
+        "por_tipo": data,
+        "calculado_en": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("/entregas-a-tiempo", summary="KPI 5")

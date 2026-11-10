@@ -177,6 +177,6 @@ redacta y escala — **la IA jamás inventa fechas ni calcula KPIs (eso es
 | A · Datos demo dashboard | ✅ Completo (2026-11-09) — 7 KPIs con valores reales + 3 bugs críticos corregidos (mig. 0005) |
 | Docs I (arquitectura, E-R, agente) | ✅ Completo (2026-11-09) — `01`, `03`, `04` con Mermaid |
 | B · Arreglos KPI (umbrales + filtros) | ✅ Completo (2026-11-09) — semáforos leen `dim_kpi` (probado: editar umbral cambia el semáforo); los 7 KPIs aplican producto/origen/operador |
-| Docs II (flujos, manual, API, README) | ⬜ Pendiente |
+| Docs II (flujos, manual, API, README) | ✅ Completada — `02-flujos.md`, `05-manual-usuario.md` (16 capturas), `06-api.md`, README; fixes rate-limit/CORS/KPI global |
 | C · UI del agente | ⬜ Pendiente |
 | C2 · Canal Telegram | ⏳ Futuro |
