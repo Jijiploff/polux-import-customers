@@ -14,14 +14,13 @@
 - Quirks PowerShell: sin operador `??`; `Select-String` puede devolver exit 1 sin ser error; warning compose por atributo `version` (cosmético)
 
 ## Fases (ver PLAN_FASES.md para detalle)
-- **0 Plan ✅ / A Datos demo ✅** — commitear (pendiente al cortar)
-- **Docs I ⬜**: `01-arquitectura.md`, `03-modelo-er.md`, `04-agente.md` (Mermaid, en español)
-- **B ⬜**: umbrales KPI leídos de `dim_kpi` (hoy hardcodeados en `kpis.py::_semaphore`) + filtros de series ignorados en `kpi_service.py` (líneas ~107, 181, 188-249)
-- **Docs II ✅**: `02-flujos.md` (8 diagramas), `05-manual-usuario.md` (12 tareas por rol con 16 capturas regeneradas con datos limpios), `06-api.md` (generado desde OpenAPI), README reescrito; fixes: rate-limit 429 con CORS + key por ruta completa, KPI 4 con valor global ponderado
-- **Siguiente**: Fase C (página del agente IA + botones crear caso/imprevisto/comunicación) → Fase T (~13 tests preexistentes)
-- **C ⬜**: UI agente IA + botones crear caso/imprevisto/comunicación (endpoints ya existen)
-- **T ⬜**: reparar ~13 tests rotos (aislamiento BD compartida, teardowns FK, `datetime.date` sin tz en test_kpis_serie, `GET /` 404, firma webhook no rechaza) — baseline verificado: fallaban ANTES de los fixes
-- **C2 futuro**: Telegram (definir en 04-agente.md); n8n descartado (justificar en doc); LLM = Gemini vía endpoint OpenAI-compatible (solo `.env`)
+- **0 Plan ✅ / A Datos demo ✅** — commit `53bbdf4`
+- **Docs I ✅** — `01`, `03`, `04` (commit `df17b1a`)
+- **B ✅** — umbrales de `dim_kpi` + filtros en las 7 series (commit `de7f10c`)
+- **Docs II ✅** — `02-flujos.md` (8 diagramas), `05-manual-usuario.md` (18 capturas), `06-api.md`, README; fixes rate-limit/CORS/KPI global (commit `50dd648`)
+- **C ✅** — página `/agente` (simulador + métricas + test de clasificación, menú ADMIN/OPERADOR) + botones **+ Nuevo caso / + Nuevo imprevisto / + Nuevo mensaje**; verificación e2e 10/10 (`frontend/scripts/verificar-fase-c.mjs`, temporal, no versionado); build `npm run build` y `npm test` en verde (fixes: types vitest/globals, specs e2e fuera de vitest, token en test Alertas, replaceAll, null-check NuevaEntrega); manual 05 ampliado (§12 agente + capturas 17/18)
+- **Siguiente**: Fase T (~13 tests backend preexistentes: aislamiento BD compartida, teardowns FK, `datetime.date` sin tz en test_kpis_serie, `GET /` 404, firma webhook no rechaza) — baseline verificado: fallaban ANTES de los fixes
+- **C2 futuro**: Telegram (definido en 04-agente.md); n8n descartado (justificado en doc); LLM = Gemini vía endpoint OpenAI-compatible (solo `.env`)
 
 ## Bugs encontrados y CORREGOS (commiteados con Fase A)
 1. `comunicacion.whatsapp_message_id` UNIQUE nullable → SQL Server 23000 con el 2º NULL → motor de reglas caído desde el arranque → migración 0005 (índice único filtrado `WHERE IS NOT NULL`)
@@ -42,4 +41,4 @@
 - Commits por fase estable
 
 ## Criterio de fase estable
-Dashboard con valores ✅ (Fase A) → commitear → Docs I → B → Docs II → C → T
+Dashboard con valores ✅ (Fase A) → commitear → Docs I → B → Docs II → C (✅) → T

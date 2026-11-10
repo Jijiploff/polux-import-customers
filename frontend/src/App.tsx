@@ -18,6 +18,7 @@ import { UsuariosPage } from "./pages/admin/UsuariosPage";
 import { ReglasPage } from "./pages/admin/ReglasPage";
 import { CatalogosPage } from "./pages/admin/CatalogosPage";
 import { AdminOpsPage } from "./pages/admin/AdminOpsPage";
+import { AgentePage } from "./pages/agente/AgentePage";
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/pedidos" element={<PedidosListPage />} />
           <Route path="/pedidos/:id" element={<PedidoDetailPage />} />
           <Route path="/comunicaciones" element={<ComunicacionesPage />} />
+          <Route path="/agente" element={<AgentePage />} />
           <Route path="/alertas" element={<AlertasPage />} />
           <Route path="/casos" element={<CasosPage />} />
           <Route path="/imprevistos" element={<ImprevistosPage />} />

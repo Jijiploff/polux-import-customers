@@ -51,6 +51,7 @@ export function NuevaEntregaPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!pedido) return;
     if (tipo === "COMPLETA" && !todosListos) {
       setError("No se puede programar una entrega completa si hay ítems no listos.");
       return;

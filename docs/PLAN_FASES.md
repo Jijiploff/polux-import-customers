@@ -64,10 +64,10 @@ silenciosa.
 
 | # | Función | Endpoint listo | UI |
 |---|---|---|---|
-| C1 | **Agente IA (chat)** | `agent.py` (4 endpoints) | ❌ No existe página |
-| C2 | Crear casos | `POST /casos` | ❌ Sin botón |
-| C3 | Registrar imprevistos | `POST /imprevistos` | ❌ Sin botón |
-| C4 | Enviar comunicaciones | `POST /comunicaciones` | ❌ Sin botón |
+| C1 | **Agente IA (chat)** | `agent.py` (4 endpoints) | ✅ `/agente` (página con simulador, métricas y test de clasificación) |
+| C2 | Crear casos | `POST /casos` | ✅ Botón **+ Nuevo caso** (modal) |
+| C3 | Registrar imprevistos | `POST /imprevistos` | ✅ Botón **+ Nuevo imprevisto** (modal) |
+| C4 | Enviar comunicaciones | `POST /comunicaciones` | ✅ Botón **+ Nuevo mensaje** (modal) |
 | C5 | Cambiar estado de ítems | `PATCH /items/{id}/estado` | ❌ Sin UI (ni `api/items.ts`) |
 | C6 | Procesar outbox manual | `POST /outbox/run` | ❌ Solo CLI |
 | C7 | `GET /kpis/validacion` | `kpis.py` | ❌ Función muerta en ambos lados |
@@ -129,7 +129,7 @@ estado estable (o al terminar un bloque de documentación).
 | **Docs I** | `01-arquitectura.md`, `03-modelo-er.md`, `04-agente.md` | Los 3 documentos completos y con diagramas Mermaid renderizando | ✅ |
 | **B. Arreglos KPI** | B1: umbrales leídos de `dim_kpi`. B2: filtros conectados en las 4 series (o documentados como no soportados) | Editar umbral en Admin cambia el semáforo; filtros afectan la serie | ✅ (2026-11-09) |
 | **Docs II** | `02-flujos.md`, `05-manual-usuario.md` (con capturas), `06-api.md`, `README.md` reparado | Manual completo por rol con capturas del sistema poblado | ✅ |
-| **C. UI del agente** | Página del agente IA + botones crear caso/imprevisto/comunicación (C1-C4) | Flujo completo desde la UI sin tocar la API a mano | ⬜ |
+| **C. UI del agente** | Página del agente IA + botones crear caso/imprevisto/comunicación (C1-C4) | Flujo completo desde la UI sin tocar la API a mano | ✅ |
 | **T. Suite de tests** | Reparar los ~13 tests rotos: aislamiento de BD (o DB de test separada), orden de teardown por FKs, `datetime.date` vs datetime con tz, ruta `/`, validación de firma de webhook | `pytest -q` en verde | ⬜ |
 | **C2 (posterior)** | Canal Telegram (definido en `04-agente.md` durante Docs I) | Demo del agente respondiendo por Telegram | ⏳ futuro |
 
@@ -177,6 +177,6 @@ redacta y escala — **la IA jamás inventa fechas ni calcula KPIs (eso es
 | A · Datos demo dashboard | ✅ Completo (2026-11-09) — 7 KPIs con valores reales + 3 bugs críticos corregidos (mig. 0005) |
 | Docs I (arquitectura, E-R, agente) | ✅ Completo (2026-11-09) — `01`, `03`, `04` con Mermaid |
 | B · Arreglos KPI (umbrales + filtros) | ✅ Completo (2026-11-09) — semáforos leen `dim_kpi` (probado: editar umbral cambia el semáforo); los 7 KPIs aplican producto/origen/operador |
-| Docs II (flujos, manual, API, README) | ✅ Completada — `02-flujos.md`, `05-manual-usuario.md` (16 capturas), `06-api.md`, README; fixes rate-limit/CORS/KPI global |
-| C · UI del agente | ⬜ Pendiente |
+| Docs II (flujos, manual, API, README) | ✅ Completada (2026-11-10) — `02-flujos.md`, `05-manual-usuario.md` (18 capturas), `06-api.md`, README; fixes rate-limit/CORS/KPI global |
+| C · UI del agente (C1-C4) | ✅ Completa (2026-11-10) — página `/agente` + botones crear caso/imprevisto/comunicación; verificación e2e 10/10; build y tests del frontend en verde |
 | C2 · Canal Telegram | ⏳ Futuro |

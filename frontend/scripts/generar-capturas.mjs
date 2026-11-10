@@ -89,6 +89,20 @@ async function main() {
     await shot(a, name);
   }
 
+  // 17) Agente IA con una conversación en curso (se limpia la BD después)
+  await a.goto(`${BASE}/agente`);
+  await a.waitForLoadState("networkidle").catch(() => {});
+  await a.getByPlaceholder(/Cuándo llega/i).fill("¿Cuándo llega mi pedido PD-2025-0001?");
+  await a.getByRole("button", { name: "Enviar mensaje" }).click();
+  await a.getByText("Confianza:").first().waitFor({ timeout: 15000 }).catch(() => {});
+  await shot(a, "17-agente-ia");
+
+  // 18) Modal de nuevo caso (sin guardarlo)
+  await a.goto(`${BASE}/casos`);
+  await a.getByRole("button", { name: "+ Nuevo caso" }).click();
+  await a.waitForTimeout(400);
+  await shot(a, "18-nuevo-caso");
+
   // 3) Sesión GERENTE (solo lectura)
   const ctxG = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const g = await ctxG.newPage();

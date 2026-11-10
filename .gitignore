@@ -15,6 +15,7 @@ node_modules/
 dist/
 .vite/
 *.log
+*.tsbuildinfo
 
 # Env / secretos
 .env

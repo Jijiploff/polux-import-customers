@@ -39,7 +39,7 @@ export function StatusBadge({ value }: { value: string }) {
       display: "inline-block", padding: "2px 8px", borderRadius: "999px",
       fontSize: "0.75rem", fontWeight: 600, background: p.bg, color: p.fg,
     }}>
-      {value.replaceAll("_", " ")}
+      {value.replace(/_/g, " ")}
     </span>
   );
 }

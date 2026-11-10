@@ -21,7 +21,8 @@
 9. [Programar y completar una entrega](#9-programar-y-completar-una-entrega)
 10. [Administración (solo Admin)](#10-administración-solo-admin)
 11. [Qué puede ver cada rol](#11-puede-ver-cada-rol)
-12. [Preguntas frecuentes](#12-preguntas-frecuentes)
+12. [Hablar con el agente IA](#12-hablar-con-el-agente-ia)
+13. [Preguntas frecuentes](#13-preguntas-frecuentes)
 
 ---
 
@@ -56,6 +57,7 @@ A la izquierda verás el menú. Las opciones dependen de tu rol:
 | **Imprevistos** | Problemas de aduana, logística, etc. |
 | **Entregas** | Programar y registrar entregas |
 | **Comunicaciones** | Todo lo que se ha hablado con los clientes |
+| **Agente IA** | Probar cómo responde el asistente automático |
 | **Usuarios / Reglas / Catálogos / Operaciones** | Solo para Administradores |
 
 Arriba a la derecha verás tu **rol** (por ejemplo `Rol: ADMIN`) y el
@@ -197,6 +199,20 @@ reclamos, retrasos graves, etc.
 > 🕐 Lo importante es registrar la **primera acción** rápido: el
 > indicador del panel cuenta las horas desde que se abrió el caso.
 
+### Crear un caso manualmente
+
+Si detectas un problema que aún no tiene caso (sin necesidad de que el
+sistema lo genere):
+
+1. Haz clic en **+ Nuevo caso** (arriba a la derecha).
+2. Elige el **pedido**, el **motivo**, la **prioridad** y escribe qué
+   pasó:
+
+   ![Nuevo caso](capturas/18-nuevo-caso.png)
+
+3. Haz clic en **Crear caso**. Aparecerá en la lista con estado
+   *Abierto*.
+
 ---
 
 ## 7. Registrar y resolver un imprevisto
@@ -213,6 +229,9 @@ transporte…
 2. El sistema lo lista con su estado: **Abierto**, **En proceso**,
    **Resuelto**.
 3. Filtra por estado para ver los pendientes.
+
+> 💡 Si quieres registrar uno nuevo, haz clic en **+ Nuevo imprevisto**
+> (arriba a la derecha), elige el pedido, el tipo y escribe qué pasó.
 
 ### Resolverlo
 
@@ -237,6 +256,10 @@ transporte…
 3. Usa **Filtrar por pedido ID** para ver solo la conversación de un
    pedido.
 4. Usa **Anterior / Siguiente** para recorrer la lista.
+
+> 💡 Para anotar una conversación hecha por otro medio (llamada,
+> correo…), usa **+ Nuevo mensaje**: elige el pedido, la dirección
+> (hacia el cliente o del cliente), el canal, quién escribe y el texto.
 
 > También puedes buscar la conversación desde el pedido: el historial
 > completo queda registrado por pedido.
@@ -335,6 +358,7 @@ minutos:
 | Dashboard (indicadores) | ✅ | ✅ | ✅ |
 | Pedidos, hitos, entregas | ✅ | ✅ | ❌ |
 | Alertas, casos, imprevistos, comunicaciones | ✅ | ✅ | ❌ |
+| Agente IA (probar el asistente) | ✅ | ✅ | ❌ |
 | Usuarios, reglas, catálogos, operaciones | ✅ | ❌ | ❌ |
 
 El menú muestra solo las opciones a las que tienes acceso. Si necesitas
@@ -342,7 +366,52 @@ que te amplíen permisos, pídeselo a un Administrador.
 
 ---
 
-## 12. Preguntas frecuentes
+## 12. Hablar con el agente IA
+
+**¿Qué es?** Un asistente automático que recibe las consultas de los
+clientes (como si llegaran por WhatsApp), las entiende, responde con
+mensajes aprobados y decide cuándo pasarle el caso a una persona.
+
+Disponible para **Administradores** y **Operadores** (menú
+**Agente IA**):
+
+![Agente IA](capturas/17-agente-ia.png)
+
+### 12.1 Probar una conversación
+
+1. En el menú, haz clic en **Agente IA**.
+2. En **Simulador de conversación** puedes elegir el canal (WhatsApp,
+   Email o Web) y, si quieres, asociar un pedido.
+3. Escribe un mensaje como si fueras el cliente — por ejemplo
+   *«¿Cuándo llega mi pedido?»* — y haz clic en **Enviar mensaje**.
+4. Verás la respuesta del agente y, debajo, cómo lo interpretó:
+   **intención** (qué quería el cliente), **sentimiento** (cómo estaba)
+   y **confianza** (qué tan seguro estaba).
+
+Si el asunto es grave (un reclamo, por ejemplo), el agente lo marca
+como **escalado** y crea un **caso** para que lo atienda una persona.
+
+### 12.2 Ver el resumen
+
+Las tarjetas de arriba muestran, en tiempo real:
+
+- cuántos mensajes de clientes ha recibido,
+- cuántas respuestas ha enviado,
+- cuántos tuvo que escalar a una persona (y el porcentaje),
+- cuántas respuestas fueron con mensajes aprobados.
+
+### 12.3 Probar solo la clasificación (solo Admin)
+
+El recuadro **Probar clasificación** analiza un texto y muestra qué
+intención y sentimiento detecta — **sin** responder ni registrar nada
+en el sistema. Sirve para comprobar cómo reaccionaría.
+
+> 📌 Todo lo que pruebes con un pedido asociado queda registrado en
+> **Comunicaciones**, como cualquier otra conversación.
+
+---
+
+## 13. Preguntas frecuentes
 
 **No puedo entrar — dice "Credenciales inválidas".**
 Revisa el correo y la contraseña (mayúsculas minúsculas). Si sigue
