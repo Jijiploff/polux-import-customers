@@ -1,0 +1,74 @@
+version: "3.9"
+
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: polux_db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD}"
+      MSSQL_PID: "Standard"
+    volumes:
+      - mssql_data:/var/opt/mssql
+      - ./backups:/var/opt/mssql/backups
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    restart: unless-stopped
+    networks: [polux_net]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: polux_backend
+    env_file: .env
+    environment:
+      APP_ENV: production
+      SCHEDULER_ENABLED: "false"   # scheduler corre en el worker dedicado
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+    restart: unless-stopped
+    networks: [polux_net]
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: polux_worker
+    env_file: .env
+    environment:
+      APP_ENV: production
+      SCHEDULER_ENABLED: "true"    # solo el worker ejecuta el scheduler
+      SCHEDULER_RUN_ON_STARTUP: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "scripts.run_worker"]
+    restart: unless-stopped
+    networks: [polux_net]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: polux_frontend
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    networks: [polux_net]
+
+volumes:
+  mssql_data:
+
+networks:
+  polux_net:
+    driver: bridge

@@ -1,0 +1,673 @@
+"""Agente IA acotado: clasifica intención, detecta tono y redacta mensajes.
+
+Todo lo que NO sea clasificación/redacción (estados, fechas, decisiones,
+cálculo de KPIs) proviene de la BD o del motor de reglas. Ver §7 del plan.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.config import get_settings
+from app.core.logging import get_logger
+from app.models import (
+    AutorComunicacion,
+    Canal,
+    CasoEscalamiento,
+    Cliente,
+    Comunicacion,
+    DireccionComunicacion,
+    EstadoCaso,
+    EstadoHito,
+    EstadoImprevisto,
+    EstadoPedido,
+    Imprevisto,
+    ItemHito,
+    MotivoEscalamiento,
+    Pedido,
+    PedidoItem,
+    PrioridadCaso,
+    Sentimiento,
+)
+from app.schemas.agent import AgentResult, ClassificationRead, IncomingMessage
+from app.services.llm_provider import (
+    ClassificationResult,
+    Intent,
+    LLMProvider,
+    MockProvider,
+    Sentiment,
+    TipoMensajeEntrante,
+    contains_pii,
+    extract_dates,
+    get_llm_provider,
+)
+from app.services.notification_service import NotificationService
+from app.services.rule_engine import RuleEngine
+
+logger = get_logger("agent_service")
+settings = get_settings()
+
+_ESTADOS_PEDIDO_LABEL = {
+    EstadoPedido.RECIBIDO: "recibido",
+    EstadoPedido.EN_PROCESO: "en proceso",
+    EstadoPedido.LISTO_PARA_ENTREGA: "listo para entrega",
+    EstadoPedido.EN_COORDINACION: "en coordinación de entrega",
+    EstadoPedido.ENTREGADO: "entregado",
+    EstadoPedido.CERRADO: "cerrado",
+    EstadoPedido.CERRADO_CON_OBSERVACIONES: "cerrado con observaciones",
+    EstadoPedido.CANCELADO: "cancelado",
+}
+
+# Intenciones que se responden con plantilla aprobada (texto cerrado).
+_INTENT_TO_PLANTILLA: dict[Intent, str] = {
+    Intent.SALUDO: "AGENTE_SALUDO",
+    Intent.PAGOS: "AGENTE_PAGOS_REDIRECT",
+}
+
+
+class AgentService:
+    def __init__(self, db: Session, provider: LLMProvider | None = None):
+        self.db = db
+        self.provider = provider or get_llm_provider()
+        self.notifier = NotificationService(db)
+        self.rule_engine = RuleEngine(db)
+        self.settings = settings
+
+    # =================================================================
+    # Entrada
+    # =================================================================
+    def handle_incoming_message(self, payload: IncomingMessage) -> AgentResult:
+        pedido = self._resolve_pedido(payload)
+        cliente = pedido.cliente if pedido else self._resolve_cliente(payload)
+
+        incoming = self._persist_incoming(payload, pedido)
+
+        # Multimedia: no procesable por el LLM
+        if payload.tipo_mensaje != TipoMensajeEntrante.TEXT:
+            return self._handle_multimedia(pedido, incoming)
+
+        # Anti doble-respuesta: si un humano respondió hace < N min, no responder
+        if pedido is not None and self._human_in_progress(pedido.id):
+            logger.info(
+                "agent_skips_human_in_progress pedido_id=%s com_id=%s",
+                pedido.id, incoming.id,
+            )
+            self.db.commit()
+            return AgentResult(
+                incoming_comunicacion_id=incoming.id,
+                classification=ClassificationRead(
+                    intent="—", sentiment="—", confidence=0.0, provider_used="skipped",
+                ),
+                human_in_progress=True,
+                fecha_procesamiento=datetime.utcnow(),
+            )
+
+        classification, fallback = self._safe_classify(payload.contenido, pedido)
+        incoming.intencion_detectada = classification.intent.value
+        incoming.sentimiento = self._map_sentiment(classification.sentiment)
+        self.db.flush()
+
+        result = self._route(
+            payload=payload, pedido=pedido, cliente=cliente, incoming=incoming,
+            classification=classification, fallback=fallback,
+        )
+        self.db.commit()
+        return result
+
+    # =================================================================
+    # Resolución / persistencia
+    # =================================================================
+    def _resolve_pedido(self, payload: IncomingMessage) -> Pedido | None:
+        if payload.pedido_id:
+            return self.db.get(Pedido, payload.pedido_id)
+        if payload.cliente_id:
+            return self.db.scalar(
+                select(Pedido)
+                .where(
+                    Pedido.cliente_id == payload.cliente_id,
+                    Pedido.estado_actual.not_in(
+                        [EstadoPedido.CERRADO, EstadoPedido.CERRADO_CON_OBSERVACIONES,
+                         EstadoPedido.CANCELADO]
+                    ),
+                )
+                .order_by(Pedido.fecha_ingreso.desc())
+                .limit(1)
+            )
+        return None
+
+    def _resolve_cliente(self, payload: IncomingMessage) -> Cliente | None:
+        if payload.cliente_id:
+            return self.db.get(Cliente, payload.cliente_id)
+        return None
+
+    def _persist_incoming(
+        self, payload: IncomingMessage, pedido: Pedido | None
+    ) -> Comunicacion:
+        com = Comunicacion(
+            pedido_id=pedido.id if pedido else None,
+            direccion=DireccionComunicacion.ENTRANTE,
+            canal=payload.canal,
+            contenido=payload.contenido,
+            autor=AutorComunicacion.CLIENTE,
+            escalado=False,
+            whatsapp_message_id=payload.whatsapp_message_id,
+            fecha=datetime.utcnow(),
+        )
+        self.db.add(com)
+        self.db.flush()
+        return com
+
+    # =================================================================
+    # Clasificación con contexto y fallback
+    # =================================================================
+    def _safe_classify(
+        self, text: str, pedido: Pedido | None
+    ) -> tuple[ClassificationResult, bool]:
+        context = self._conversation_context(pedido.id) if pedido else None
+        try:
+            return self.provider.classify(text, context=context), False
+        except Exception as exc:
+            logger.exception("llm_classify_failed err=%s", exc)
+            result = MockProvider().classify(text)
+            result.provider_used = "mock_fallback"
+            return result, True
+
+    def _conversation_context(self, pedido_id: int) -> dict[str, Any] | None:
+        n = self.settings.AGENT_CONTEXT_MESSAGES
+        if n <= 0:
+            return None
+        rows = self.db.scalars(
+            select(Comunicacion)
+            .where(Comunicacion.pedido_id == pedido_id)
+            .order_by(Comunicacion.fecha.desc())
+            .limit(n)
+        ).all()
+        if not rows:
+            return None
+        rows.reverse()
+        return {
+            "historial": [
+                {"direccion": r.direccion.value, "autor": r.autor.value,
+                 "texto": r.contenido[:240], "fecha": r.fecha.isoformat()}
+                for r in rows
+            ]
+        }
+
+    # =================================================================
+    # Router principal
+    # =================================================================
+    def _route(
+        self,
+        *,
+        payload: IncomingMessage,
+        pedido: Pedido | None,
+        cliente: Cliente | None,
+        incoming: Comunicacion,
+        classification: ClassificationResult,
+        fallback: bool,
+    ) -> AgentResult:
+        intent = classification.intent
+        sentiment = classification.sentiment
+        confidence = classification.confidence
+
+        # 1. Baja confianza → escalar (una clasificación dudosa no debe actuar sola)
+        if confidence < self.settings.AGENT_MIN_CONFIDENCE:
+            return self._escalate(
+                pedido=pedido, cliente=cliente, incoming=incoming,
+                classification=classification,
+                motivo=MotivoEscalamiento.OTRO,
+                prioridad=PrioridadCaso.MEDIA,
+                descripcion=f"Baja confianza ({confidence:.2f}) en clasificación; requiere revisión humana.",
+                fallback=fallback,
+            )
+
+        # 2. Reclamo / tono negativo / daño / producto incorrecto → SIEMPRE escalar
+        if intent in (Intent.RECLAMO, Intent.DAÑO, Intent.PRODUCTO_INCORRECTO) \
+                or sentiment == Sentiment.NEGATIVO:
+            prioridad = (
+                PrioridadCaso.CRITICA
+                if intent in (Intent.DAÑO, Intent.PRODUCTO_INCORRECTO)
+                else PrioridadCaso.ALTA
+            )
+            motivo = MotivoEscalamiento.RECLAMO
+            return self._escalate(
+                pedido=pedido, cliente=cliente, incoming=incoming,
+                classification=classification, motivo=motivo, prioridad=prioridad,
+                descripcion=f"Agente detectó {intent.value}. Escalar sin resolver.",
+                fallback=fallback,
+            )
+
+        # 3. Entrega parcial → escalar (el agente NUNCA decide)
+        if intent == Intent.ENTREGA_PARCIAL:
+            if pedido is not None:
+                caso = self.rule_engine.handle_partial_delivery_request(
+                    pedido_id=pedido.id, comunicacion_id=incoming.id,
+                )
+                incoming.escalado = True
+                incoming.caso_id = caso.id
+                outgoing = self.notifier.send_from_plantilla_code(
+                    codigo_plantilla="AGENTE_HOLDING_ESCALAMIENTO",
+                    pedido=pedido,
+                    variables={"cliente_nombre": pedido.cliente.nombre},
+                    intencion=intent.value,
+                    sentimiento=sentiment.value,
+                    escalado=True, caso_id=caso.id,
+                )
+                return AgentResult(
+                    incoming_comunicacion_id=incoming.id,
+                    outgoing_comunicacion_id=outgoing.id if outgoing else None,
+                    classification=self._serialize_classification(classification),
+                    escalated=True, escalation_reason="ENTREGA_PARCIAL",
+                    caso_id=caso.id,
+                    response_text=outgoing.contenido if outgoing else None,
+                    fallback_used=fallback,
+                    fecha_procesamiento=datetime.utcnow(),
+                )
+            # sin pedido, pedir el código antes de decidir
+            return self._respond_no_pedido_id(cliente, incoming, classification, fallback)
+
+        # 4. Pagos → derivar al canal correcto + abrir caso (cliente debe ser atendido)
+        if intent == Intent.PAGOS:
+            return self._escalate(
+                pedido=pedido, cliente=cliente, incoming=incoming,
+                classification=classification, motivo=MotivoEscalamiento.OTRO,
+                prioridad=PrioridadCaso.MEDIA,
+                descripcion="Consulta sobre pagos/cuotas/contrato. Derivar a canal correspondiente.",
+                fallback=fallback,
+                codigo_plantilla="AGENTE_PAGOS_REDIRECT",
+            )
+
+        # 5. Sin pedido y pregunta por estado → pedir código
+        if pedido is None and intent in (Intent.ESTADO_PEDIDO, Intent.RETRASO):
+            return self._respond_no_pedido_id(cliente, incoming, classification, fallback)
+
+        # 6. Estado del pedido / retraso → responder con datos reales
+        if pedido is not None and intent in (Intent.ESTADO_PEDIDO, Intent.RETRASO):
+            return self._handle_estado(pedido, incoming, classification, fallback)
+
+        # 7. Intents "cerrados" → usar plantilla aprobada
+        if intent in _INTENT_TO_PLANTILLA and pedido is not None:
+            return self._respond_from_plantilla(
+                pedido=pedido, incoming=incoming,
+                classification=classification,
+                codigo_plantilla=_INTENT_TO_PLANTILLA[intent],
+                fallback=fallback,
+            )
+
+        # 8. Consulta general / otro → composición libre
+        return self._handle_general(pedido, cliente, incoming, classification, fallback)
+
+    # =================================================================
+    # Handlers
+    # =================================================================
+    def _escalate(
+        self,
+        *,
+        pedido: Pedido | None,
+        cliente: Cliente | None,
+        incoming: Comunicacion,
+        classification: ClassificationResult,
+        motivo: MotivoEscalamiento,
+        prioridad: PrioridadCaso,
+        descripcion: str,
+        fallback: bool,
+        codigo_plantilla: str = "AGENTE_HOLDING_ESCALAMIENTO",
+    ) -> AgentResult:
+        """Crea caso (si hay pedido) o deja el registro entrante marcado; responde holding."""
+        caso_id: int | None = None
+        if pedido is not None:
+            # Evitar duplicado: si ya hay caso abierto para el mismo motivo → reutilizar
+            caso = self.db.scalar(
+                select(CasoEscalamiento).where(
+                    CasoEscalamiento.pedido_id == pedido.id,
+                    CasoEscalamiento.motivo == motivo,
+                    CasoEscalamiento.estado.in_(
+                        [EstadoCaso.ABIERTO, EstadoCaso.EN_PROCESO]
+                    ),
+                )
+            )
+            if caso is None:
+                caso = CasoEscalamiento(
+                    pedido_id=pedido.id,
+                    comunicacion_origen_id=incoming.id,
+                    motivo=motivo,
+                    prioridad=prioridad,
+                    descripcion=descripcion,
+                    fecha_apertura=datetime.utcnow(),
+                    estado=EstadoCaso.ABIERTO,
+                )
+                self.db.add(caso)
+                self.db.flush()
+            caso_id = caso.id
+
+        incoming.escalado = True
+        incoming.caso_id = caso_id
+        self.db.flush()
+
+        outgoing = None
+        response_text: str | None = None
+        if pedido is not None:
+            outgoing = self.notifier.send_from_plantilla_code(
+                codigo_plantilla=codigo_plantilla,
+                pedido=pedido,
+                variables={"cliente_nombre": pedido.cliente.nombre},
+                intencion=classification.intent.value,
+                sentimiento=classification.sentiment.value,
+                escalado=True,
+                caso_id=caso_id,
+            )
+            response_text = outgoing.contenido if outgoing else None
+        else:
+            response_text = (
+                "Hola, hemos derivado tu caso con un asesor que te contactará en breve."
+            )
+
+        logger.info(
+            "agent_escalated pedido_id=%s motivo=%s caso_id=%s intent=%s",
+            pedido.id if pedido else None, motivo.value, caso_id,
+            classification.intent.value,
+        )
+        return AgentResult(
+            incoming_comunicacion_id=incoming.id,
+            outgoing_comunicacion_id=outgoing.id if outgoing else None,
+            classification=self._serialize_classification(classification),
+            escalated=True,
+            escalation_reason=classification.intent.value,
+            caso_id=caso_id,
+            response_text=response_text,
+            fallback_used=fallback,
+            fecha_procesamiento=datetime.utcnow(),
+        )
+
+    def _handle_estado(
+        self,
+        pedido: Pedido,
+        incoming: Comunicacion,
+        classification: ClassificationResult,
+        fallback: bool,
+    ) -> AgentResult:
+        facts = self._build_facts(pedido)
+        response_text, used_fallback = self._compose_with_guardrails(
+            classification.intent, facts, pedido,
+        )
+        outgoing = self.notifier.send_raw_from_agent(
+            pedido=pedido,
+            contenido=response_text,
+            intencion=classification.intent.value,
+            sentimiento=classification.sentiment.value,
+            require_consent=False,
+        )
+        return AgentResult(
+            incoming_comunicacion_id=incoming.id,
+            outgoing_comunicacion_id=outgoing.id if outgoing else None,
+            classification=self._serialize_classification(classification),
+            escalated=False,
+            response_text=response_text,
+            fallback_used=fallback or used_fallback,
+            fecha_procesamiento=datetime.utcnow(),
+        )
+
+    def _respond_from_plantilla(
+        self,
+        *,
+        pedido: Pedido,
+        incoming: Comunicacion,
+        classification: ClassificationResult,
+        codigo_plantilla: str,
+        fallback: bool,
+    ) -> AgentResult:
+        outgoing = self.notifier.send_from_plantilla_code(
+            codigo_plantilla=codigo_plantilla,
+            pedido=pedido,
+            variables={"cliente_nombre": pedido.cliente.nombre},
+            intencion=classification.intent.value,
+            sentimiento=classification.sentiment.value,
+            escalado=False,
+        )
+        if outgoing is None:
+            # La plantilla no existe o consentimiento revocado → fallback Mock
+            return self._handle_general(pedido, pedido.cliente, incoming, classification, fallback)
+        return AgentResult(
+            incoming_comunicacion_id=incoming.id,
+            outgoing_comunicacion_id=outgoing.id,
+            classification=self._serialize_classification(classification),
+            escalated=False,
+            response_text=outgoing.contenido,
+            fallback_used=fallback,
+            fecha_procesamiento=datetime.utcnow(),
+        )
+
+    def _handle_general(
+        self,
+        pedido: Pedido | None,
+        cliente: Cliente | None,
+        incoming: Comunicacion,
+        classification: ClassificationResult,
+        fallback: bool,
+    ) -> AgentResult:
+        facts = {
+            "cliente_nombre": (
+                pedido.cliente.nombre if pedido else (cliente.nombre if cliente else "")
+            ),
+            "valid_dates": [],
+        }
+        response_text, used_fallback = self._compose_with_guardrails(
+            classification.intent, facts, pedido,
+        )
+        outgoing_id = None
+        if pedido is not None:
+            outgoing = self.notifier.send_raw_from_agent(
+                pedido=pedido,
+                contenido=response_text,
+                intencion=classification.intent.value,
+                sentimiento=classification.sentiment.value,
+                require_consent=False,
+            )
+            outgoing_id = outgoing.id if outgoing else None
+        return AgentResult(
+            incoming_comunicacion_id=incoming.id,
+            outgoing_comunicacion_id=outgoing_id,
+            classification=self._serialize_classification(classification),
+            escalated=False,
+            response_text=response_text,
+            fallback_used=fallback or used_fallback,
+            fecha_procesamiento=datetime.utcnow(),
+        )
+
+    def _respond_no_pedido_id(
+        self,
+        cliente: Cliente | None,
+        incoming: Comunicacion,
+        classification: ClassificationResult,
+        fallback: bool,
+    ) -> AgentResult:
+        nombre = cliente.nombre if cliente else ""
+        text = (
+            f"Hola {nombre}, para consultar el estado de tu pedido necesito que "
+            "me indiques tu código de pedido (por ejemplo PD-2025-0001)."
+        ).strip()
+        return AgentResult(
+            incoming_comunicacion_id=incoming.id,
+            classification=self._serialize_classification(classification),
+            response_text=text,
+            fallback_used=fallback,
+            fecha_procesamiento=datetime.utcnow(),
+        )
+
+    def _handle_multimedia(
+        self, pedido: Pedido | None, incoming: Comunicacion
+    ) -> AgentResult:
+        classification = ClassificationRead(
+            intent="MULTIMEDIA", sentiment="NEUTRO",
+            confidence=1.0, provider_used="system",
+        )
+        text = (
+            "Hemos recibido tu mensaje. Para revisar imágenes o archivos, "
+            "un asesor te contactará en breve."
+        )
+        outgoing_id = None
+        if pedido is not None:
+            caso = CasoEscalamiento(
+                pedido_id=pedido.id,
+                comunicacion_origen_id=incoming.id,
+                motivo=MotivoEscalamiento.OTRO,
+                prioridad=PrioridadCaso.MEDIA,
+                descripcion="Mensaje multimedia entrante requiere revisión humana.",
+                fecha_apertura=datetime.utcnow(),
+                estado=EstadoCaso.ABIERTO,
+            )
+            self.db.add(caso)
+            self.db.flush()
+            incoming.escalado = True
+            incoming.caso_id = caso.id
+            outgoing = self.notifier.send_from_plantilla_code(
+                codigo_plantilla="AGENTE_HOLDING_ESCALAMIENTO",
+                pedido=pedido,
+                variables={"cliente_nombre": pedido.cliente.nombre},
+                intencion="MULTIMEDIA", sentimiento="NEUTRO",
+                escalado=True, caso_id=caso.id,
+            )
+            outgoing_id = outgoing.id if outgoing else None
+        self.db.commit()
+        return AgentResult(
+            incoming_comunicacion_id=incoming.id,
+            outgoing_comunicacion_id=outgoing_id,
+            classification=classification,
+            escalated=pedido is not None,
+            escalation_reason="MULTIMEDIA" if pedido else None,
+            caso_id=incoming.caso_id,
+            response_text=text,
+            fecha_procesamiento=datetime.utcnow(),
+        )
+
+    # =================================================================
+    # Facts (siempre desde BD)
+    # =================================================================
+    def _build_facts(self, pedido: Pedido) -> dict[str, Any]:
+        items = self.db.scalars(
+            select(PedidoItem).where(PedidoItem.pedido_id == pedido.id)
+        ).all()
+
+        items_facts: list[dict[str, Any]] = []
+        valid_dates: set[str] = {pedido.fecha_prometida.strftime("%d/%m/%Y")}
+        retraso_critico = False
+        for item in items:
+            hitos = self.db.scalars(
+                select(ItemHito)
+                .where(ItemHito.pedido_item_id == item.id)
+                .order_by(ItemHito.id)
+            ).all()
+            proximo = next((h for h in hitos if h.estado.value != "COMPLETADO"), None)
+            proximo_nombre = proximo.hito.nombre if proximo and proximo.hito else "—"
+            fecha_prox = (
+                proximo.fecha_prevista.strftime("%d/%m/%Y")
+                if proximo and proximo.fecha_prevista else None
+            )
+            if fecha_prox:
+                valid_dates.add(fecha_prox)
+            if any(
+                h.estado == EstadoHito.ATRASADO and h.dias_atraso > 5
+                for h in hitos
+            ):
+                retraso_critico = True
+            items_facts.append({
+                "descripcion": item.descripcion_producto,
+                "origen": item.origen.value,
+                "estado": item.estado.value,
+                "proximo_hito": proximo_nombre,
+                "fecha_prevista_proximo": fecha_prox,
+            })
+
+        imprevisto_activo = self.db.scalar(
+            select(Imprevisto.id).where(
+                Imprevisto.pedido_id == pedido.id,
+                Imprevisto.estado.in_(
+                    [EstadoImprevisto.ABIERTO, EstadoImprevisto.EN_PROCESO]
+                ),
+            )
+        ) is not None
+
+        return {
+            "cliente_nombre": pedido.cliente.nombre,
+            "pedido_codigo": pedido.codigo,
+            "estado_pedido": _ESTADOS_PEDIDO_LABEL.get(
+                pedido.estado_actual, pedido.estado_actual.value
+            ),
+            "fecha_prometida": pedido.fecha_prometida.strftime("%d/%m/%Y"),
+            "items": items_facts,
+            "valid_dates": sorted(valid_dates),
+            "imprevisto_activo": imprevisto_activo,
+            "retraso_critico": retraso_critico,
+        }
+
+    # =================================================================
+    # Guardrails de composición
+    # =================================================================
+    def _compose_with_guardrails(
+        self, intent: Intent, facts: dict[str, Any], pedido: Pedido | None,
+    ) -> tuple[str, bool]:
+        """Compone con LLM. Si inventa fechas / filtra PII / falla → fallback Mock."""
+        try:
+            candidate = self.provider.compose_response(intent, facts)
+        except Exception as exc:
+            logger.exception("llm_compose_failed err=%s", exc)
+            return self._deterministic_fallback(intent, facts), True
+
+        allowed = set(facts.get("valid_dates", []))
+        detected = extract_dates(candidate)
+        invented = [d for d in detected if d not in allowed]
+        if invented:
+            logger.warning(
+                "llm_invented_dates detected=%s allowed=%s", invented, allowed,
+            )
+            return self._deterministic_fallback(intent, facts), True
+
+        if pedido is not None and contains_pii(
+            candidate,
+            phone=pedido.cliente.telefono_whatsapp,
+            email=pedido.cliente.email,
+        ):
+            logger.warning("llm_pii_leak pedido_id=%s", pedido.id)
+            return self._deterministic_fallback(intent, facts), True
+
+        return candidate, False
+
+    def _deterministic_fallback(self, intent: Intent, facts: dict[str, Any]) -> str:
+        return MockProvider().compose_response(intent, facts)
+
+    # =================================================================
+    # Helpers
+    # =================================================================
+    def _human_in_progress(self, pedido_id: int) -> bool:
+        """¿Un operador respondió en los últimos N minutos?"""
+        minutes = self.settings.AGENT_RECENT_HUMAN_RESPONSE_MINUTES
+        if minutes <= 0:
+            return False
+        limite = datetime.utcnow() - timedelta(minutes=minutes)
+        row = self.db.scalar(
+            select(Comunicacion.id).where(
+                Comunicacion.pedido_id == pedido_id,
+                Comunicacion.direccion == DireccionComunicacion.SALIENTE,
+                Comunicacion.autor == AutorComunicacion.HUMANO,
+                Comunicacion.fecha >= limite,
+            ).limit(1)
+        )
+        return row is not None
+
+    def _map_sentiment(self, s: Sentiment) -> Sentimiento:
+        return {
+            Sentiment.NEUTRO: Sentimiento.NEUTRO,
+            Sentiment.POSITIVO: Sentimiento.POSITIVO,
+            Sentiment.NEGATIVO: Sentimiento.NEGATIVO,
+        }[s]
+
+    def _serialize_classification(self, c: ClassificationResult) -> ClassificationRead:
+        return ClassificationRead(
+            intent=c.intent.value,
+            sentiment=c.sentiment.value,
+            confidence=c.confidence,
+            provider_used=c.provider_used,
+        )
