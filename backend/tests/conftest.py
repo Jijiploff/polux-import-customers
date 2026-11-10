@@ -4,6 +4,10 @@ from typing import Iterator
 
 # Debe ejecutarse antes de importar la app
 os.environ["SCHEDULER_ENABLED"] = "false"
+# Los tests NUNCA gastan cuota del LLM real (Gemini): siempre motor local.
+# (La variable de entorno tiene prioridad sobre el .env, así que pase lo que
+# pase en desarrollo, la suite es determinista y gratuita.)
+os.environ["LLM_PROVIDER"] = "mock"
 
 import pytest
 from fastapi.testclient import TestClient

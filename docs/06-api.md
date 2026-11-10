@@ -213,7 +213,7 @@ el backend**, además de ocultar rutas en la UI.
 | Método | Ruta | Descripción | Rol |
 |---|---|---|---|
 | POST | `/agent/messages/incoming` | Procesa un mensaje entrante (simulación local) | autenticado |
-| GET | `/agent/provider` | Proveedor LLM activo (mock / openai) | autenticado |
+| GET | `/agent/provider` | Proveedor LLM activo (mock / gemini) | autenticado |
 | GET | `/agent/metrics` | Métricas agregadas del agente | autenticado |
 | POST | `/agent/test/classify` | Clasifica un texto sin ejecutar el flujo | ADMIN |
 

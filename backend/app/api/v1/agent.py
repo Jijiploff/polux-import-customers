@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_admin
+from app.core.logging import get_logger
 from app.db.session import get_db
 from app.models import (
     AutorComunicacion, Comunicacion, DireccionComunicacion, Pedido,
@@ -16,6 +17,7 @@ from app.services.agent_service import AgentService
 from app.services.llm_provider import get_llm_provider
 
 router = APIRouter()
+logger = get_logger("agent_api")
 
 
 @router.post(
@@ -93,11 +95,24 @@ def metrics(
     summary="Clasifica un texto sin ejecutar el flujo (solo ADMIN)",
 )
 def test_classify(payload: IncomingMessage):
-    provider = get_llm_provider()
-    result = provider.classify(payload.contenido)
-    return {
-        "intent": result.intent.value,
-        "sentiment": result.sentiment.value,
-        "confidence": result.confidence,
-        "provider_used": result.provider_used,
-    }
+    """Solo clasifica. Si el LLM remoto no está disponible (cuota, demanda),
+    responde con el motor local en lugar de fallar: nunca corta la demo."""
+    try:
+        result = get_llm_provider().classify(payload.contenido)
+        return {
+            "intent": result.intent.value,
+            "sentiment": result.sentiment.value,
+            "confidence": result.confidence,
+            "provider_used": result.provider_used,
+        }
+    except Exception as exc:  # noqa: BLE001 — degradar es el comportamiento deseado
+        logger.warning("test_classify_fallback err=%s", exc)
+        from app.services.llm_provider import MockProvider
+        result = MockProvider().classify(payload.contenido)
+        return {
+            "intent": result.intent.value,
+            "sentiment": result.sentiment.value,
+            "confidence": result.confidence,
+            "provider_used": "mock_fallback",
+            "aviso": "El LLM remoto no está disponible; se usó el motor local.",
+        }

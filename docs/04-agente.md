@@ -136,7 +136,26 @@ mensaje se escala a caso humano en lugar de responder mal
 | `mock` (default) | Clasificación por palabras clave locales — el sistema funciona 100 % sin API key |
 | `openai` | Cualquier endpoint compatible OpenAI; para Gemini: `LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai` |
 
+**Estado actual: Gemini activo** (`LLM_MODEL=gemini-3.1-flash-lite`, con
+`LLM_MODEL_FALLBACK=gemini-3.5-flash` si el principal está en alta
+demanda). El provider se identifica como `gemini` en la UI
+(*Motor: gemini*) y en `GET /agent/provider`.
+
 El cambio de proveedor es **solo `.env`** (§11).
+
+**Frugalidad con la cuota (obligatoria en planes gratuitos: ~5 RPM / ~20 RPD):**
+
+| Protección | Variable | Qué hace |
+|---|---|---|
+| Ventana deslizante de 60 s | `LLM_RPM=5` | Nunca se superan `LLM_RPM` llamadas por minuto (clasificar + redactar comparten el contador). Si se excede, responde el motor local **sin gastar la llamada** |
+| Reposo tras 429 | `LLM_COOLDOWN_SECONDS=60` | Si llega un 429 (cuota RPM/RPD agotada) no se reintenta: reposo de 60 s y motor local |
+| Reintentos acotados | `LLM_MAX_RETRIES=1` | 1 reintento ante 5xx/transitorios, con backoff corto, dentro del presupuesto `LLM_TIMEOUT_SECONDS` (20 s totales) |
+| Modelo respaldo | `LLM_MODEL_FALLBACK` | Si el modelo principal devuelve 5xx, se prueba una vez el respaldo antes de caer al motor local |
+| Motor local | (siempre) | Cualquier fallo → `MockProvider`: la conversación continúa y la UI marca `mock_fallback` |
+
+Los tests corren **siempre** con `LLM_PROVIDER=mock` (lo fija
+`tests/conftest.py`): la suite nunca consume cuota
+(`test_llm_provider.py`).
 
 ---
 
@@ -313,12 +332,17 @@ otras APIs). En ese caso, n8n sería un **complemento** que consume la API
 ## 11. Configuración (`.env`)
 
 ```bash
-# --- LLM (agente) ---
-LLM_PROVIDER=mock                # mock | openai
-LLM_API_KEY=                     # clave del proveedor
+# --- LLM (agente IA · Gemini vía endpoint compatible OpenAI) ---
+LLM_PROVIDER=openai              # mock = motor local sin API key
+LLM_API_KEY=                     # clave de aistudio.google.com (NUNCA se commitea)
 LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai   # Gemini (compatible OpenAI)
-LLM_MODEL=gemini-1.5-flash
-LLM_TIMEOUT_SECONDS=20
+LLM_MODEL=gemini-3.1-flash-lite
+LLM_MODEL_FALLBACK=gemini-3.5-flash   # se intenta si el principal da 5xx
+LLM_TIMEOUT_SECONDS=20           # presupuesto TOTAL por mensaje (reintentos incluidos)
+LLM_MAX_TOKENS=400
+LLM_MAX_RETRIES=1                # reintentos ante 5xx (NUNCA ante 429)
+LLM_RPM=5                        # máx. llamadas/min (ventana deslizante)
+LLM_COOLDOWN_SECONDS=60          # reposo tras 429 → responde el motor local
 
 # --- WhatsApp (canal productivo) ---
 WHATSAPP_ENABLED=false

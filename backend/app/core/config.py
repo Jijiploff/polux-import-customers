@@ -44,8 +44,13 @@ class Settings(BaseSettings):
     LLM_API_KEY: str = ""
     LLM_BASE_URL: str = "https://api.openai.com/v1"
     LLM_MODEL: str = "gpt-4o-mini"
-    LLM_TIMEOUT_SECONDS: int = 20
+    LLM_MODEL_FALLBACK: str = ""         # modelo alternativo si el principal devuelve 5xx
+    LLM_TIMEOUT_SECONDS: int = 20        # presupuesto TOTAL por mensaje (reintentos incluidos)
     LLM_MAX_TOKENS: int = 400
+    # Cortesía con los límites del proveedor (Gemini free tier: ~5 RPM / ~20 RPD)
+    LLM_MAX_RETRIES: int = 1             # reintentos ante 5xx/transitorios (NUNCA ante 429)
+    LLM_RPM: int = 5                     # máx. llamadas en ventana de 60 s (ventana deslizante)
+    LLM_COOLDOWN_SECONDS: int = 60       # reposo tras 429 (cuota RPM/RPD agotada)
 
         # ---- WhatsApp Business Cloud API ----
     WHATSAPP_ENABLED: bool = False

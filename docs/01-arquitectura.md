@@ -261,12 +261,19 @@ sistema funcione completo sin credenciales:
 
 | Integración | Variable clave | Modo local (`.env`) | Modo productivo |
 |---|---|---|---|
-| LLM | `LLM_PROVIDER=mock` | Clasificación por palabras clave | `openai` + `LLM_BASE_URL` de Gemini + `LLM_API_KEY` |
+| LLM | `LLM_PROVIDER` / `LLM_MODEL` | **Gemini activo** (`openai` + endpoint compatible OpenAI de Gemini); si la cuota o la red fallan, motor local (mock) automático | igual; para volver a simulado: `LLM_PROVIDER=mock` |
 | WhatsApp | `WHATSAPP_DRY_RUN=true` | wamid sintético `dryrun.<uuid>` | `WHATSAPP_ENABLED=true` + token Meta |
 | Email | `EMAIL_PROVIDER=mock` | Log en consola | `resend` o `smtp` |
 | Scheduler | `SCHEDULER_ENABLED=true` | Corre siempre en local | igual (sin cambios) |
 
 El cambio a productivo es **solo de `.env`** — el código no cambia.
+
+> **Cortesía con la cuota del LLM.** Los planes gratuitos limitan ~5
+> llamadas/minuto (RPM) y ~20/día (RPD). El provider usa una ventana
+> deslizante (`LLM_RPM`), entra en reposo automático tras un 429
+> (`LLM_COOLDOWN_SECONDS`) y ante cualquier fallo responde el **motor
+> local (mock)**: la atención al cliente nunca se corta ni se quema cuota.
+> Detalle en [`04-agente.md`](04-agente.md#5-el-llm-acotado-qué-hace-y-qué-no).
 
 ---
 

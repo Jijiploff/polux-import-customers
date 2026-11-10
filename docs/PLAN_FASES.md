@@ -4,7 +4,7 @@
 > Cada fase se marca completa al llegar a un estado estable **y** hacerse su commit.
 
 **Fecha de creación:** 2026-11-09
-**Última actualización:** 2026-11-09
+**Última actualización:** 2026-11-10
 
 ---
 
@@ -96,8 +96,9 @@ funciona), pero requiere una fase dedicada → ver Fase T.
 
 ### 🟠 Integraciones simuladas (documentado, pero no reales)
 
-- **WhatsApp** en `dry_run`, **LLM** en `mock`, **Email** en `mock` — el
-  agente clasifica por keywords locales, no llama a ningún modelo.
+- **WhatsApp** en `dry_run`, **Email** en `mock` — y **LLM ya NO es mock**:
+  Gemini activo vía endpoint OpenAI-compatible (Fase G1), con el motor local
+  (mock) como respaldo automático ante cuota/red.
 - **Parámetros de plantillas WhatsApp** — `_extract_body_params` solo llena
   2 variables; el propio código dice *"en una iteración posterior"*.
 
@@ -131,6 +132,8 @@ estado estable (o al terminar un bloque de documentación).
 | **Docs II** | `02-flujos.md`, `05-manual-usuario.md` (con capturas), `06-api.md`, `README.md` reparado | Manual completo por rol con capturas del sistema poblado | ✅ |
 | **C. UI del agente** | Página del agente IA + botones crear caso/imprevisto/comunicación (C1-C4) | Flujo completo desde la UI sin tocar la API a mano | ✅ |
 | **T. Suite de tests** | Reparar los ~13 tests rotos: aislamiento de BD (o DB de test separada), orden de teardown por FKs, `datetime.date` vs datetime con tz, ruta `/`, validación de firma de webhook | `pytest -q` en verde | ✅ (2026-11-10) — 90 tests verdes y repetibles (2 corridas, cero residuo en BD) |
+| **G1. Gemini activo** | Activar el LLM real (`LLM_PROVIDER=openai` + endpoint Gemini), con cortesía con la cuota (ventana RPM, reposo tras 429, modelo respaldo, motor local) y tests aislados de la cuota | `GET /agent/provider` → `gemini` y clasificación real verificada; suite en verde sin gastar cuota | ✅ (2026-11-10) |
+| **G2. Simulador de chat WhatsApp** | Página que simula un chat de WhatsApp real: el agente recibe, clasifica, informa y toma acciones (caso/escalamiento); el humano responde desde la plataforma cuando el agente deriva | Flujo completo desde la UI (cliente → agente → escalamiento → respuesta humana) + manual y captura | ⏳ en curso |
 | **C2 (posterior)** | Canal Telegram (definido en `04-agente.md` durante Docs I) | Demo del agente respondiendo por Telegram | ⏳ futuro |
 
 ---
@@ -140,7 +143,7 @@ estado estable (o al terminar un bloque de documentación).
 | Tema | Decisión | Justificación |
 |---|---|---|
 | **Audiencia del manual** | Usuarios del cliente (sin conocimientos técnicos) | Tareas paso a paso con capturas, sin jerga |
-| **LLM** | **Gemini vía endpoint OpenAI-compatible** (`generativelanguage.googleapis.com/v1beta/openai`), `mock` como fallback | El código ya es OpenAI-compatible → activación solo con `.env`, sin tocar código |
+| **LLM** | **Gemini vía endpoint OpenAI-compatible** (`generativelanguage.googleapis.com/v1beta/openai`), `mock` como fallback | El código ya es OpenAI-compatible → activación solo con `.env`, sin tocar código. **Activado en Fase G1** con cortesía con la cuota (RPM/429) porque el plan gratuito limita ~5 llamadas/min y ~20/día |
 | **Canal productivo** | WhatsApp Business Cloud API (ya implementado, `dry_run` → real) | Canal real de clientes en Perú |
 | **Canal demo** | **Telegram Bot API** — *definido en documentación, implementación posterior* | Sin revisión de Meta, ideal para demostrar el agente en vivo |
 | **Orquestación** | APScheduler + motor de reglas + outbox (interno) | Ya implementado, idempotente y trazable |
@@ -180,4 +183,6 @@ redacta y escala — **la IA jamás inventa fechas ni calcula KPIs (eso es
 | Docs II (flujos, manual, API, README) | ✅ Completada (2026-11-10) — `02-flujos.md`, `05-manual-usuario.md` (18 capturas), `06-api.md`, README; fixes rate-limit/CORS/KPI global |
 | C · UI del agente (C1-C4) | ✅ Completa (2026-11-10) — página `/agente` + botones crear caso/imprevisto/comunicación; verificación e2e 10/10; build y tests del frontend en verde |
 | T · Suite de tests | ✅ Completa (2026-11-10) — de 17 fallas + 2 errores a **90 tests en verde**; repetible sin residuo en BD (2 corridas con conteos idénticos) |
+| G1 · Gemini activo | ✅ Completa (2026-11-10) — `LLM_PROVIDER=openai` + Gemini (`gemini-3.1-flash-lite`, respaldo `gemini-3.5-flash`); RateGuard (ventana RPM, reposo 429), motor local ante cualquier fallo; 8 tests nuevos (98 en verde) sin gastar cuota |
+| G2 · Simulador de chat WhatsApp | ⏳ En curso |
 | C2 · Canal Telegram | ⏳ Futuro |
