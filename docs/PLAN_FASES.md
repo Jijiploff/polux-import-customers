@@ -127,7 +127,7 @@ estado estable (o al terminar un bloque de documentación).
 | **0. Plan** | Este documento (`docs/PLAN_FASES.md`) | Documento escrito | ✅ con Fase 1 |
 | **A. Datos demo** | Script `scripts/demo_dashboard_data.py`: completar hitos, crear entregas (completa + parcial), casos, imprevistos, comunicaciones; correr `sync-facts` | `GET /dashboard/resumen` devuelve valores reales (no `SIN_DATOS`) en los 7 KPIs | ✅ |
 | **Docs I** | `01-arquitectura.md`, `03-modelo-er.md`, `04-agente.md` | Los 3 documentos completos y con diagramas Mermaid renderizando | ✅ |
-| **B. Arreglos KPI** | B1: umbrales leídos de `dim_kpi`. B2: filtros conectados en las 4 series (o documentados como no soportados) | Editar umbral en Admin cambia el semáforo; filtros afectan la serie | ✅ |
+| **B. Arreglos KPI** | B1: umbrales leídos de `dim_kpi`. B2: filtros conectados en las 4 series (o documentados como no soportados) | Editar umbral en Admin cambia el semáforo; filtros afectan la serie | ✅ (2026-11-09) |
 | **Docs II** | `02-flujos.md`, `05-manual-usuario.md` (con capturas), `06-api.md`, `README.md` reparado | Manual completo por rol con capturas del sistema poblado | ✅ |
 | **C. UI del agente** | Página del agente IA + botones crear caso/imprevisto/comunicación (C1-C4) | Flujo completo desde la UI sin tocar la API a mano | ⬜ |
 | **T. Suite de tests** | Reparar los ~13 tests rotos: aislamiento de BD (o DB de test separada), orden de teardown por FKs, `datetime.date` vs datetime con tz, ruta `/`, validación de firma de webhook | `pytest -q` en verde | ⬜ |
@@ -175,8 +175,8 @@ redacta y escala — **la IA jamás inventa fechas ni calcula KPIs (eso es
 |---|---|
 | 0 · Plan (`docs/PLAN_FASES.md`) | ✅ Completo |
 | A · Datos demo dashboard | ✅ Completo (2026-11-09) — 7 KPIs con valores reales + 3 bugs críticos corregidos (mig. 0005) |
-| Docs I (arquitectura, E-R, agente) | ⬜ Pendiente |
-| B · Arreglos KPI (umbrales + filtros) | ⬜ Pendiente |
+| Docs I (arquitectura, E-R, agente) | ✅ Completo (2026-11-09) — `01`, `03`, `04` con Mermaid |
+| B · Arreglos KPI (umbrales + filtros) | ✅ Completo (2026-11-09) — semáforos leen `dim_kpi` (probado: editar umbral cambia el semáforo); los 7 KPIs aplican producto/origen/operador |
 | Docs II (flujos, manual, API, README) | ⬜ Pendiente |
 | C · UI del agente | ⬜ Pendiente |
 | C2 · Canal Telegram | ⏳ Futuro |

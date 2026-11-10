@@ -81,20 +81,43 @@ class KpiService:
             return self._serie_freq_actualizacion(desde, hasta, granularidad,
                                                   producto_id, origen, operador_id)
         if codigo == "TASA_RESOLUCION_AUTOMATICA":
-            return self._serie_resolucion(desde, hasta, granularidad, operador_id)
+            return self._serie_resolucion(desde, hasta, granularidad,
+                                          producto_id, origen, operador_id)
         if codigo == "TIEMPO_RESPUESTA_ESCALADOS":
-            return self._serie_tiempo_respuesta(desde, hasta, granularidad, operador_id)
+            return self._serie_tiempo_respuesta(desde, hasta, granularidad,
+                                                producto_id, origen, operador_id)
         if codigo == "TIEMPO_RESOLUCION_IMPREVISTOS":
-            return self._serie_tiempo_imprevistos(desde, hasta, granularidad, operador_id)
+            return self._serie_tiempo_imprevistos(desde, hasta, granularidad,
+                                                  producto_id, origen, operador_id)
         if codigo == "ENTREGAS_A_TIEMPO":
-            return self._serie_entregas_a_tiempo(desde, hasta, granularidad, operador_id)
+            return self._serie_entregas_a_tiempo(desde, hasta, granularidad,
+                                                 producto_id, origen, operador_id)
         if codigo == "ENTREGAS_SIN_OBSERVACIONES":
-            return self._serie_sin_observaciones(desde, hasta, granularidad, operador_id)
+            return self._serie_sin_observaciones(desde, hasta, granularidad,
+                                                 producto_id, origen, operador_id)
         if codigo == "PCT_ENTREGAS_PARCIALES":
-            return self._serie_parciales(desde, hasta, granularidad, operador_id)
+            return self._serie_parciales(desde, hasta, granularidad,
+                                         producto_id, origen, operador_id)
         raise ValueError(codigo)
 
     # --------- Filtros SQL comunes ---------
+    def _where_producto(self, producto_id: int | None, *, directa: bool = False) -> str:
+        """Filtro por producto.
+
+        `directa=True` cuando la fact tiene `producto_id` (fact_hito_pedido);
+        si no, subconsulta: el pedido del hecho contiene el producto.
+        """
+        if not producto_id:
+            return ""
+        if directa:
+            return "AND f.producto_id = :producto_id"
+        return (
+            "AND f.pedido_id IN ("
+            "SELECT pi.pedido_id FROM pedido_item pi "
+            "WHERE pi.producto_id = :producto_id"
+            ")"
+        )
+
     def _where_origen(self, origen: str | None) -> str:
         if not origen:
             return ""
@@ -104,12 +127,39 @@ class KpiService:
             ")"
         )
 
-    def _where_operador(self, operador_id: int | None, has_column: bool = True) -> str:
+    # --- Filtro por operador según la granularidad de cada fact ---
+    def _where_operador_columna(self, operador_id: int | None) -> str:
+        """fact_hito_pedido / fact_comunicacion: columna `operador_id` propia."""
         if operador_id is None:
             return ""
-        if has_column:
-            return "AND f.operador_id = :operador_id"
-        return ""
+        return "AND f.operador_id = :operador_id"
+
+    def _where_operador_caso(self, operador_id: int | None) -> str:
+        """fact_escalamiento: el operador es el responsable del caso."""
+        if operador_id is None:
+            return ""
+        return (
+            "AND f.caso_id IN (SELECT c.id FROM caso_escalamiento c "
+            "WHERE c.responsable_id = :operador_id)"
+        )
+
+    def _where_operador_imprevisto(self, operador_id: int | None) -> str:
+        """fact_imprevisto: el operador es el responsable del imprevisto."""
+        if operador_id is None:
+            return ""
+        return (
+            "AND f.imprevisto_id IN (SELECT i.id FROM imprevisto i "
+            "WHERE i.responsable_id = :operador_id)"
+        )
+
+    def _where_operador_entrega(self, operador_id: int | None) -> str:
+        """fact_entrega: el operador es quien registró la entrega."""
+        if operador_id is None:
+            return ""
+        return (
+            "AND f.entrega_id IN (SELECT e.id FROM entrega e "
+            "WHERE e.responsable_id = :operador_id)"
+        )
 
     def _period_expr(self, granularidad: str) -> tuple[str, str]:
         """(select_periodo, group_by) usando dim_tiempo."""
@@ -127,13 +177,12 @@ class KpiService:
         )
 
     # =========================================================
-    # Implementación por KPI
+    # Implementación por KPI (los 3 filtros: producto, origen, operador)
     # =========================================================
     def _serie_freq_actualizacion(
         self, desde, hasta, gran, prod, origen, operador,
     ) -> dict:
         periodo, group = self._period_expr(gran)
-        prod_where = "AND f.producto_id = :producto_id" if prod else ""
         sql = f"""
             SELECT {periodo} AS periodo,
                    COUNT(*) AS total,
@@ -142,16 +191,16 @@ class KpiService:
             JOIN dim_tiempo dt ON dt.id = f.tiempo_id
             WHERE f.completado = 1
               AND dt.fecha BETWEEN :desde AND :hasta
-              {prod_where}
+              {self._where_producto(prod, directa=True)}
               {self._where_origen(origen)}
-              {self._where_operador(operador, True)}
+              {self._where_operador_columna(operador)}
             GROUP BY {group}
             ORDER BY {group}
         """
         return self._run_series(sql, desde, hasta, gran, prod, origen, operador,
                                 "porcentaje")
 
-    def _serie_resolucion(self, desde, hasta, gran, operador) -> dict:
+    def _serie_resolucion(self, desde, hasta, gran, prod, origen, operador) -> dict:
         periodo, group = self._period_expr(gran)
         sql = f"""
             SELECT {periodo} AS periodo,
@@ -161,14 +210,16 @@ class KpiService:
             JOIN dim_tiempo dt ON dt.id = f.tiempo_id
             WHERE f.direccion = 'ENTRANTE' AND f.autor = 'CLIENTE'
               AND dt.fecha BETWEEN :desde AND :hasta
-              {self._where_operador(operador, True)}
+              {self._where_producto(prod)}
+              {self._where_origen(origen)}
+              {self._where_operador_columna(operador)}
             GROUP BY {group}
             ORDER BY {group}
         """
-        return self._run_series(sql, desde, hasta, gran, None, None, operador,
+        return self._run_series(sql, desde, hasta, gran, prod, origen, operador,
                                 "porcentaje")
 
-    def _serie_tiempo_respuesta(self, desde, hasta, gran, operador) -> dict:
+    def _serie_tiempo_respuesta(self, desde, hasta, gran, prod, origen, operador) -> dict:
         periodo, group = self._period_expr(gran)
         sql = f"""
             SELECT {periodo} AS periodo,
@@ -178,14 +229,16 @@ class KpiService:
             JOIN dim_tiempo dt ON dt.id = f.tiempo_id
             WHERE f.horas_respuesta IS NOT NULL
               AND dt.fecha BETWEEN :desde AND :hasta
-              {self._where_operador(operador, False)}
+              {self._where_producto(prod)}
+              {self._where_origen(origen)}
+              {self._where_operador_caso(operador)}
             GROUP BY {group}
             ORDER BY {group}
         """
-        return self._run_series(sql, desde, hasta, gran, None, None, operador,
+        return self._run_series(sql, desde, hasta, gran, prod, origen, operador,
                                 "promedio")
 
-    def _serie_tiempo_imprevistos(self, desde, hasta, gran, operador) -> dict:
+    def _serie_tiempo_imprevistos(self, desde, hasta, gran, prod, origen, operador) -> dict:
         periodo, group = self._period_expr(gran)
         sql = f"""
             SELECT {periodo} AS periodo,
@@ -195,13 +248,16 @@ class KpiService:
             JOIN dim_tiempo dt ON dt.id = f.tiempo_id
             WHERE f.dias_resolucion IS NOT NULL
               AND dt.fecha BETWEEN :desde AND :hasta
+              {self._where_producto(prod)}
+              {self._where_origen(origen)}
+              {self._where_operador_imprevisto(operador)}
             GROUP BY {group}
             ORDER BY {group}
         """
-        return self._run_series(sql, desde, hasta, gran, None, None, None,
+        return self._run_series(sql, desde, hasta, gran, prod, origen, operador,
                                 "promedio")
 
-    def _serie_entregas_a_tiempo(self, desde, hasta, gran, operador) -> dict:
+    def _serie_entregas_a_tiempo(self, desde, hasta, gran, prod, origen, operador) -> dict:
         periodo, group = self._period_expr(gran)
         sql = f"""
             SELECT {periodo} AS periodo,
@@ -211,13 +267,16 @@ class KpiService:
             JOIN dim_tiempo dt ON dt.id = f.tiempo_id
             WHERE f.tipo = 'COMPLETA'
               AND dt.fecha BETWEEN :desde AND :hasta
+              {self._where_producto(prod)}
+              {self._where_origen(origen)}
+              {self._where_operador_entrega(operador)}
             GROUP BY {group}
             ORDER BY {group}
         """
-        return self._run_series(sql, desde, hasta, gran, None, None, None,
+        return self._run_series(sql, desde, hasta, gran, prod, origen, operador,
                                 "porcentaje")
 
-    def _serie_sin_observaciones(self, desde, hasta, gran, operador) -> dict:
+    def _serie_sin_observaciones(self, desde, hasta, gran, prod, origen, operador) -> dict:
         periodo, group = self._period_expr(gran)
         sql = f"""
             SELECT {periodo} AS periodo,
@@ -227,13 +286,16 @@ class KpiService:
             JOIN dim_tiempo dt ON dt.id = f.tiempo_id
             WHERE f.tipo = 'COMPLETA'
               AND dt.fecha BETWEEN :desde AND :hasta
+              {self._where_producto(prod)}
+              {self._where_origen(origen)}
+              {self._where_operador_entrega(operador)}
             GROUP BY {group}
             ORDER BY {group}
         """
-        return self._run_series(sql, desde, hasta, gran, None, None, None,
+        return self._run_series(sql, desde, hasta, gran, prod, origen, operador,
                                 "porcentaje")
 
-    def _serie_parciales(self, desde, hasta, gran, operador) -> dict:
+    def _serie_parciales(self, desde, hasta, gran, prod, origen, operador) -> dict:
         periodo, group = self._period_expr(gran)
         sql = f"""
             SELECT {periodo} AS periodo,
@@ -242,10 +304,13 @@ class KpiService:
             FROM fact_entrega f
             JOIN dim_tiempo dt ON dt.id = f.tiempo_id
             WHERE dt.fecha BETWEEN :desde AND :hasta
+              {self._where_producto(prod)}
+              {self._where_origen(origen)}
+              {self._where_operador_entrega(operador)}
             GROUP BY {group}
             ORDER BY {group}
         """
-        return self._run_series(sql, desde, hasta, gran, None, None, None,
+        return self._run_series(sql, desde, hasta, gran, prod, origen, operador,
                                 "porcentaje")
 
     # =========================================================

@@ -11,15 +11,46 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.db.session import get_db
+from app.models import DimKpi
 
 from datetime import date as date_type
+from sqlalchemy import select as sa_select
 from app.services.kpi_service import KpiService, VALID_GRAINS, VALID_KPIS
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
+# Umbrales históricos: fallback si `dim_kpi` no tiene la fila (no tumbar el
+# dashboard). La fuente de verdad es `dim_kpi`, editable desde
+# Admin → Catálogos sin redeploy.
+_UMBRALES_FALLBACK: dict[str, tuple[float, float, float, str]] = {
+    "FREQ_ACTUALIZACION_CLIENTE": (95.0, 85.0, 0.0, "mayor_mejor"),
+    "TASA_RESOLUCION_AUTOMATICA": (80.0, 60.0, 0.0, "mayor_mejor"),
+    "TIEMPO_RESPUESTA_ESCALADOS": (4.0, 8.0, 24.0, "menor_mejor"),
+    "TIEMPO_RESOLUCION_IMPREVISTOS": (2.0, 5.0, 15.0, "menor_mejor"),
+    "ENTREGAS_A_TIEMPO": (90.0, 75.0, 0.0, "mayor_mejor"),
+    "ENTREGAS_SIN_OBSERVACIONES": (97.0, 90.0, 0.0, "mayor_mejor"),
+    "PCT_ENTREGAS_PARCIALES": (5.0, 10.0, 25.0, "menor_mejor"),
+}
 
-def _semaphore(codigo: str, valor: float | None, sentido: str,
-               optimo: float, alerta: float, critico: float) -> str:
+
+def _umbrales(db: Session, codigo: str) -> tuple[float, float, float, str]:
+    """(óptimo, alerta, crítico, sentido) del KPI leído de `dim_kpi`."""
+    try:
+        row = db.scalar(sa_select(DimKpi).where(DimKpi.codigo == codigo))
+    except Exception:
+        row = None
+    if row is None:
+        return _UMBRALES_FALLBACK[codigo]
+    return (
+        float(row.umbral_optimo),
+        float(row.umbral_alerta),
+        float(row.umbral_critico),
+        row.sentido,
+    )
+
+
+def _semaphore(valor: float | None, sentido: str,
+               optimo: float, alerta: float) -> str:
     if valor is None:
         return "SIN_DATOS"
     if sentido == "mayor_mejor":
@@ -39,16 +70,15 @@ def _semaphore(codigo: str, valor: float | None, sentido: str,
 @router.get("/actualizacion-cliente", summary="KPI 1")
 def kpi_actualizacion(db: Session = Depends(get_db)):
     row = db.execute(text("SELECT * FROM vw_kpi_actualizacion_cliente")).mappings().first()
+    valor = float(row["kpi_porcentaje"]) if row["kpi_porcentaje"] is not None else None
+    optimo, alerta, _critico, sentido = _umbrales(db, "FREQ_ACTUALIZACION_CLIENTE")
     return {
         "codigo": "FREQ_ACTUALIZACION_CLIENTE",
         "hitos_completados": row["hitos_completados"],
         "hitos_notificados_oportunos": row["hitos_notificados_oportunos"],
-        "kpi_porcentaje": float(row["kpi_porcentaje"]) if row["kpi_porcentaje"] is not None else None,
-        "semaforo": _semaphore(
-            "FREQ_ACTUALIZACION_CLIENTE",
-            float(row["kpi_porcentaje"]) if row["kpi_porcentaje"] is not None else None,
-            "mayor_mejor", 95, 85, 0,
-        ),
+        "kpi_porcentaje": valor,
+        "semaforo": _semaphore(valor, sentido, optimo, alerta),
+        "umbrales": {"optimo": optimo, "alerta": alerta},
         "calculado_en": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -57,12 +87,14 @@ def kpi_actualizacion(db: Session = Depends(get_db)):
 def kpi_resolucion(db: Session = Depends(get_db)):
     row = db.execute(text("SELECT * FROM vw_kpi_resolucion_automatica")).mappings().first()
     valor = float(row["kpi_porcentaje"]) if row["kpi_porcentaje"] is not None else None
+    optimo, alerta, _critico, sentido = _umbrales(db, "TASA_RESOLUCION_AUTOMATICA")
     return {
         "codigo": "TASA_RESOLUCION_AUTOMATICA",
         "total_consultas": row["total_consultas"],
         "resueltas_automaticamente": row["resueltas_automaticamente"],
         "kpi_porcentaje": valor,
-        "semaforo": _semaphore("TASA_RESOLUCION_AUTOMATICA", valor, "mayor_mejor", 80, 60, 0),
+        "semaforo": _semaphore(valor, sentido, optimo, alerta),
+        "umbrales": {"optimo": optimo, "alerta": alerta},
         "calculado_en": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -71,11 +103,13 @@ def kpi_resolucion(db: Session = Depends(get_db)):
 def kpi_tiempo_respuesta(db: Session = Depends(get_db)):
     row = db.execute(text("SELECT * FROM vw_kpi_tiempo_respuesta_escalados")).mappings().first()
     valor = float(row["kpi_horas_promedio"]) if row["kpi_horas_promedio"] is not None else None
+    optimo, alerta, _critico, sentido = _umbrales(db, "TIEMPO_RESPUESTA_ESCALADOS")
     return {
         "codigo": "TIEMPO_RESPUESTA_ESCALADOS",
         "casos_con_respuesta": row["casos_con_respuesta"],
         "kpi_horas_promedio": valor,
-        "semaforo": _semaphore("TIEMPO_RESPUESTA_ESCALADOS", valor, "menor_mejor", 4, 8, 24),
+        "semaforo": _semaphore(valor, sentido, optimo, alerta),
+        "umbrales": {"optimo": optimo, "alerta": alerta},
         "calculado_en": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -83,6 +117,7 @@ def kpi_tiempo_respuesta(db: Session = Depends(get_db)):
 @router.get("/resolucion-imprevistos", summary="KPI 4")
 def kpi_resolucion_imprevistos(db: Session = Depends(get_db)):
     rows = db.execute(text("SELECT * FROM vw_kpi_resolucion_imprevistos")).mappings().all()
+    optimo, alerta, _critico, sentido = _umbrales(db, "TIEMPO_RESOLUCION_IMPREVISTOS")
     data = []
     for r in rows:
         valor = float(r["kpi_dias_promedio"]) if r["kpi_dias_promedio"] is not None else None
@@ -90,7 +125,8 @@ def kpi_resolucion_imprevistos(db: Session = Depends(get_db)):
             "tipo": r["tipo"],
             "imprevistos_resueltos": r["imprevistos_resueltos"],
             "kpi_dias_promedio": valor,
-            "semaforo": _semaphore("TIEMPO_RESOLUCION_IMPREVISTOS", valor, "menor_mejor", 2, 5, 15),
+            "semaforo": _semaphore(valor, sentido, optimo, alerta),
+            "umbrales": {"optimo": optimo, "alerta": alerta},
         })
     return {"codigo": "TIEMPO_RESOLUCION_IMPREVISTOS", "por_tipo": data,
             "calculado_en": datetime.now(timezone.utc).isoformat()}
@@ -100,12 +136,14 @@ def kpi_resolucion_imprevistos(db: Session = Depends(get_db)):
 def kpi_entregas_a_tiempo(db: Session = Depends(get_db)):
     row = db.execute(text("SELECT * FROM vw_kpi_entregas_a_tiempo")).mappings().first()
     valor = float(row["kpi_porcentaje"]) if row["kpi_porcentaje"] is not None else None
+    optimo, alerta, _critico, sentido = _umbrales(db, "ENTREGAS_A_TIEMPO")
     return {
         "codigo": "ENTREGAS_A_TIEMPO",
         "pedidos_entregados": row["pedidos_entregados"],
         "pedidos_a_tiempo": row["pedidos_a_tiempo"],
         "kpi_porcentaje": valor,
-        "semaforo": _semaphore("ENTREGAS_A_TIEMPO", valor, "mayor_mejor", 90, 75, 0),
+        "semaforo": _semaphore(valor, sentido, optimo, alerta),
+        "umbrales": {"optimo": optimo, "alerta": alerta},
         "calculado_en": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -114,12 +152,14 @@ def kpi_entregas_a_tiempo(db: Session = Depends(get_db)):
 def kpi_sin_observaciones(db: Session = Depends(get_db)):
     row = db.execute(text("SELECT * FROM vw_kpi_entregas_sin_observaciones")).mappings().first()
     valor = float(row["kpi_porcentaje"]) if row["kpi_porcentaje"] is not None else None
+    optimo, alerta, _critico, sentido = _umbrales(db, "ENTREGAS_SIN_OBSERVACIONES")
     return {
         "codigo": "ENTREGAS_SIN_OBSERVACIONES",
         "pedidos_entregados": row["pedidos_entregados"],
         "pedidos_sin_observaciones": row["pedidos_sin_observaciones"],
         "kpi_porcentaje": valor,
-        "semaforo": _semaphore("ENTREGAS_SIN_OBSERVACIONES", valor, "mayor_mejor", 97, 90, 0),
+        "semaforo": _semaphore(valor, sentido, optimo, alerta),
+        "umbrales": {"optimo": optimo, "alerta": alerta},
         "calculado_en": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -128,12 +168,14 @@ def kpi_sin_observaciones(db: Session = Depends(get_db)):
 def kpi_parciales(db: Session = Depends(get_db)):
     row = db.execute(text("SELECT * FROM vw_kpi_entregas_parciales")).mappings().first()
     valor = float(row["kpi_porcentaje"]) if row["kpi_porcentaje"] is not None else None
+    optimo, alerta, _critico, sentido = _umbrales(db, "PCT_ENTREGAS_PARCIALES")
     return {
         "codigo": "PCT_ENTREGAS_PARCIALES",
         "pedidos_entregados": row["pedidos_entregados"],
         "pedidos_con_parcial": row["pedidos_con_parcial"],
         "kpi_porcentaje": valor,
-        "semaforo": _semaphore("PCT_ENTREGAS_PARCIALES", valor, "menor_mejor", 5, 10, 25),
+        "semaforo": _semaphore(valor, sentido, optimo, alerta),
+        "umbrales": {"optimo": optimo, "alerta": alerta},
         "calculado_en": datetime.now(timezone.utc).isoformat(),
     }
 
