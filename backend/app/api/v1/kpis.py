@@ -1,6 +1,7 @@
-"""Lectura de KPIs calculados por vistas SQL.
+"""Lectura de KPIs calculados por vistas SQL del modelo dimensional.
 
-Todos los valores provienen de `vw_kpi_*` creadas en Fase 1.
+Todos los valores provienen de `vw_kpi_*`, que agregan las tablas `fact_*`
+y `dim_*` sincronizadas por el ETL dimensional.
 La IA NO participa en el cálculo (principio del plan).
 """
 from datetime import datetime, timezone

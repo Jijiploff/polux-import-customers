@@ -273,6 +273,12 @@ Los **umbrales de semáforo** (verde/ámbar/rojo) viven en `dim_kpi` y se
 editan con `PATCH /catalogos/kpis/{id}` — la respuesta de cada KPI
 incluye `"umbrales": {"optimo": …, "alerta": …}`.
 
+Los valores de los KPIs se calculan exclusivamente en las vistas
+`vw_kpi_*` sobre las tablas de hechos `fact_*` y dimensiones `dim_*`.
+El proceso `fact_sync` actualiza esas tablas desde la operación; por eso
+los endpoints del dashboard no consultan directamente las tablas
+operacionales.
+
 ### Parámetros de la serie
 
 | Parámetro | Requerido | Descripción |
