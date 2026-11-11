@@ -67,7 +67,8 @@ export function PedidoDetailPage() {
             </div>
             <StatusBadge value={it.estado} />
           </div>
-          <table style={{ width: "100%", marginTop: "0.5rem", fontSize: "0.85rem" }}>
+          <div className="data-table-wrap detail-table">
+          <table className="data-table" style={{ marginTop: "0.5rem", fontSize: "0.85rem" }}>
             <thead>
               <tr style={{ background: "#f8fafc" }}>
                 <th style={{ textAlign: "left" }}>Hito</th>
@@ -93,6 +94,7 @@ export function PedidoDetailPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       ))}
 

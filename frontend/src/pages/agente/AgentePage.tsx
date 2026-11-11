@@ -98,7 +98,7 @@ export function AgentePage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="page-toolbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1 style={{ marginTop: 0 }}>Agente IA</h1>
         <span style={{
           background: "#eef2ff", color: "#4338ca", borderRadius: 999,

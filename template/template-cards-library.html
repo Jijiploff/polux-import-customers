@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>iImport · Librería de Cards</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        colors: {
+          brand: { 50:'#eef2ff',100:'#e0e7ff',400:'#818cf8',500:'#6366f1',600:'#4f46e5',700:'#4338ca' }
+        },
+        boxShadow: {
+          card: '0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06)',
+          lift: '0 10px 20px -6px rgba(15,23,42,.10), 0 18px 40px -12px rgba(15,23,42,.14)'
+        }
+      }
+    }
+  }
+</script>
+
+<style>
+  html { scroll-behavior: smooth; }
+  body { font-feature-settings: "cv02","cv03","cv04","cv11"; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:999px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* Card base */
+  .card {
+    background:#fff;
+    border-radius:1rem;
+    border:1px solid rgba(226,232,240,.75);
+    box-shadow:0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+  }
+
+  /* Card interactiva con elevación */
+  .card-hover {
+    transition: transform .35s cubic-bezier(.22,.61,.36,1),
+                box-shadow .35s cubic-bezier(.22,.61,.36,1),
+                border-color .35s ease;
+    will-change: transform, box-shadow;
+  }
+  .card-hover:hover {
+    transform: translateY(-5px);
+    border-color: rgba(99,102,241,.35);
+    box-shadow: 0 10px 20px -6px rgba(15,23,42,.10),
+                0 18px 40px -12px rgba(15,23,42,.14),
+                0 0 0 1px rgba(99,102,241,.08);
+  }
+
+  /* Card con resplandor que sigue al cursor */
+  .card-glow { position: relative; }
+  .card-glow::before {
+    content:""; position:absolute; inset:-2px; border-radius:inherit;
+    background: radial-gradient(160px 120px at var(--mx,50%) var(--my,0%), rgba(99,102,241,.18), transparent 70%);
+    opacity:0; transition:opacity .4s ease; pointer-events:none; z-index:0;
+  }
+  .card-glow:hover::before { opacity:1; }
+  .card-glow > * { position:relative; z-index:1; }
+
+  /* Card con línea superior animada */
+  .card-topline { position: relative; overflow: hidden; }
+  .card-topline::after {
+    content:""; position:absolute; top:0; left:12px; right:12px; height:3px;
+    border-radius:0 0 999px 999px;
+    background: linear-gradient(90deg, transparent, currentColor, transparent);
+    opacity:0; transform:scaleX(.4);
+    transition: opacity .35s ease, transform .45s cubic-bezier(.22,.61,.36,1);
+    pointer-events:none;
+  }
+  .card-topline:hover::after { opacity:.7; transform:scaleX(1); }
+
+  /* Animación de entrada */
+  @keyframes fadeUp { from {opacity:0; transform:translateY(14px) scale(.98)} to {opacity:1; transform:none} }
+  .enter { opacity:0; animation: fadeUp .55s cubic-bezier(.22,.61,.36,1) forwards; }
+  .enter:nth-child(1){animation-delay:.05s} .enter:nth-child(2){animation-delay:.13s}
+  .enter:nth-child(3){animation-delay:.21s} .enter:nth-child(4){animation-delay:.29s}
+
+  /* Imagen con zoom al hover */
+  .card-img { transition: transform .6s cubic-bezier(.22,.61,.36,1); }
+  .card-hover:hover .card-img { transform: scale(1.06); }
+
+  /* Skeleton */
+  @keyframes shimmer { 100% { transform: translateX(100%); } }
+  .skeleton { position:relative; overflow:hidden; background:#eef2f7; }
+  .skeleton::after {
+    content:""; position:absolute; inset:0; transform:translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.75), transparent);
+    animation: shimmer 1.6s infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card-hover, .card-img, .card-glow::before, .card-topline::after { transition:none !important; }
+    .card-hover:hover { transform:none; }
+    .enter { opacity:1; animation:none; }
+    .skeleton::after { animation:none; }
+  }
+</style>
+</head>
+
+<body class="bg-[#f5f6f8] text-slate-700 font-sans antialiased">
+
+<!-- ══════════ TOP BAR ══════════ -->
+<header class="sticky top-0 z-30 border-b border-slate-200/70 bg-[#f5f6f8]/85 backdrop-blur-md">
+  <div class="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center gap-3">
+      <div class="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-lg shadow-indigo-500/25">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+        </svg>
+      </div>
+      <div class="leading-tight">
+        <p class="text-sm font-semibold text-slate-800">iImport · UI Kit</p>
+        <p class="text-[11px] text-slate-400">Librería de cards</p>
+      </div>
+    </div>
+
+    <nav class="ml-auto hidden items-center gap-1 xl:flex">
+      <a href="#producto" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Producto</a>
+      <a href="#perfil" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Perfil</a>
+      <a href="#metricas" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Métricas</a>
+      <a href="#acciones" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Acciones</a>
+      <a href="#contenido" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Contenido</a>
+      <a href="#estados" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Estados</a>
+    </nav>
+
+    <div class="ml-auto flex items-center gap-2 xl:ml-0">
+      <span class="hidden rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500 sm:inline">v1.0</span>
+      <div class="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 text-xs font-semibold text-white">JR</div>
+    </div>
+  </div>
+</header>
+
+<main class="mx-auto max-w-7xl space-y-16 px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
+
+  <!-- ══════════ HERO ══════════ -->
+  <section>
+    <p class="text-[11px] font-semibold uppercase tracking-wider text-brand-600">Sistema de diseño</p>
+    <h1 class="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Componentes · Cards</h1>
+    <p class="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500">
+      Tarjetas reutilizables para agrupar información: productos, perfiles, métricas, notificaciones, planes,
+      acciones y contenido editorial. Todas comparten radio de 16px, sombra suave y transiciones de 350 ms.
+    </p>
+
+    <div class="mt-6 flex flex-wrap gap-2">
+      <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">Radio 16px</span>
+      <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">Sombra suave</span>
+      <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">Hover +5px</span>
+      <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">Motion 350ms</span>
+      <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">a11y ready</span>
+    </div>
+  </section>
+
+  <!-- ══════════ 01 · CARD BASE ══════════ -->
+  <section id="base" class="scroll-mt-24">
+    <div class="mb-5 flex items-end justify-between gap-4">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">01 · Anatomía</p>
+        <h2 class="mt-1 text-lg font-semibold text-slate-900">Card base y variantes de contenedor</h2>
+      </div>
+      <span class="hidden text-xs text-slate-400 sm:block">Base · Con borde · Destacada · Oscura</span>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+
+      <!-- Base -->
+      <div class="card p-5">
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Base</p>
+        <h3 class="mt-2 text-sm font-semibold text-slate-900">Card estándar</h3>
+        <p class="mt-1.5 text-xs leading-relaxed text-slate-500">Fondo blanco, borde sutil y sombra suave. Contenedor por defecto para cualquier contenido.</p>
+        <div class="mt-4 rounded-lg bg-slate-50 px-3 py-2">
+          <p class="text-[11px] text-slate-500">Contenido interno</p>
+        </div>
+      </div>
+
+      <!-- Con borde de acento -->
+      <div class="card border-l-4 border-l-brand-500 p-5">
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-brand-600">Acento</p>
+        <h3 class="mt-2 text-sm font-semibold text-slate-900">Card con acento</h3>
+        <p class="mt-1.5 text-xs leading-relaxed text-slate-500">Borde izquierdo de color para destacar secciones importantes o categorías.</p>
+        <div class="mt-4 flex gap-1.5">
+          <span class="h-1.5 w-1.5 rounded-full bg-brand-500"></span>
+          <span class="h-1.5 w-1.5 rounded-full bg-brand-400"></span>
+          <span class="h-1.5 w-1.5 rounded-full bg-brand-100"></span>
+        </div>
+      </div>
+
+      <!-- Destacada con degradado -->
+      <div class="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 via-white to-white p-5 shadow-card">
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-brand-600">Destacada</p>
+        <h3 class="mt-2 text-sm font-semibold text-brand-900">Card con degradado</h3>
+        <p class="mt-1.5 text-xs leading-relaxed text-brand-900/70">Para llamados a la acción, onboarding o información prioritaria. Usar con moderación.</p>
+        <button class="mt-4 inline-flex items-center gap-1 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-brand-700">
+          Explorar
+          <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+
+      <!-- Oscura -->
+      <div class="rounded-2xl bg-slate-900 p-5 shadow-card">
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Invertida</p>
+        <h3 class="mt-2 text-sm font-semibold text-white">Card oscura</h3>
+        <p class="mt-1.5 text-xs leading-relaxed text-slate-400">Para resúmenes ejecutivos, dashboards o contenido que requiere contraste alto.</p>
+        <div class="mt-4 flex items-center gap-2">
+          <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-slate-200">Live</span>
+          <span class="text-[11px] text-slate-500">actualizado</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 02 · CARD DE PRODUCTO ══════════ -->
+  <section id="producto" class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">02 · Comercio</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Cards de producto</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+
+      <!-- Producto con imagen -->
+      <article class="card card-hover card-glow overflow-hidden">
+        <div class="relative aspect-[4/3] overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200">
+          <svg class="card-img absolute inset-0 h-full w-full text-slate-400" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+          </svg>
+          <span class="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 backdrop-blur">Nuevo</span>
+          <button class="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-full bg-white/90 text-slate-500 backdrop-blur transition hover:text-rose-500">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+          </button>
+        </div>
+        <div class="p-5">
+          <div class="flex items-center gap-1.5">
+            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">256GB</span>
+            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Titanio</span>
+          </div>
+          <h3 class="mt-2.5 text-sm font-semibold text-slate-900">iPhone 15 Pro Max</h3>
+          <p class="mt-1 text-xs text-slate-500">Chip A17 Pro · Cámara 48MP · USB-C</p>
+          <div class="mt-4 flex items-end justify-between">
+            <div>
+              <p class="text-lg font-semibold text-slate-900">$1,299</p>
+              <p class="text-[11px] text-slate-400 line-through">$1,399</p>
+            </div>
+            <button class="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white shadow-lg shadow-indigo-600/20 transition hover:bg-brand-700">
+              Agregar
+            </button>
+          </div>
+        </div>
+      </article>
+
+      <!-- Producto horizontal -->
+      <article class="card card-hover flex overflow-hidden sm:col-span-2 sm:flex-row">
+        <div class="relative flex w-full items-center justify-center bg-gradient-to-br from-indigo-50 to-sky-50 p-6 sm:w-2/5">
+          <svg class="card-img h-24 w-24 text-brand-400" fill="none" stroke="currentColor" stroke-width="0.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+          </svg>
+          <span class="absolute left-3 top-3 rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-amber-600 shadow-sm">-15%</span>
+        </div>
+        <div class="flex flex-1 flex-col justify-between p-5">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-brand-600">Oferta</p>
+            <h3 class="mt-1.5 text-base font-semibold text-slate-900">iPhone 14 · 128GB</h3>
+            <p class="mt-1 text-xs leading-relaxed text-slate-500">Chip A15 Bionic, pantalla Super Retina XDR de 6.1". Incluye envío internacional y garantía de 1 año.</p>
+            <div class="mt-3 flex flex-wrap gap-1.5">
+              <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">En stock</span>
+              <span class="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-600">Envío 3-5 días</span>
+            </div>
+          </div>
+          <div class="mt-4 flex items-center justify-between">
+            <div>
+              <p class="text-lg font-semibold text-slate-900">$679</p>
+              <p class="text-[11px] text-slate-400 line-through">$799</p>
+            </div>
+            <button class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-xs font-medium text-white transition hover:bg-slate-800">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+              Comprar
+            </button>
+          </div>
+        </div>
+      </article>
+    </div>
+
+    <!-- Fila adicional: productos compactos -->
+    <div class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <article class="card card-hover p-3 text-center">
+        <div class="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-500">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+        </div>
+        <p class="mt-2.5 text-xs font-semibold text-slate-800">iPhone 15</p>
+        <p class="text-[11px] text-slate-400">$899</p>
+      </article>
+      <article class="card card-hover p-3 text-center">
+        <div class="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-500">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+        </div>
+        <p class="mt-2.5 text-xs font-semibold text-slate-800">iPhone 14</p>
+        <p class="text-[11px] text-slate-400">$799</p>
+      </article>
+      <article class="card card-hover p-3 text-center">
+        <div class="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-500">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+        </div>
+        <p class="mt-2.5 text-xs font-semibold text-slate-800">iPhone 13</p>
+        <p class="text-[11px] text-slate-400">$649</p>
+      </article>
+      <article class="card card-hover p-3 text-center">
+        <div class="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-500">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+        </div>
+        <p class="mt-2.5 text-xs font-semibold text-slate-800">iPhone SE</p>
+        <p class="text-[11px] text-slate-400">$429</p>
+      </article>
+      <article class="card card-hover p-3 text-center">
+        <div class="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-500">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+        </div>
+        <p class="mt-2.5 text-xs font-semibold text-slate-800">iPad Air</p>
+        <p class="text-[11px] text-slate-400">$599</p>
+      </article>
+      <article class="card card-hover p-3 text-center">
+        <div class="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-500">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        </div>
+        <p class="mt-2.5 text-xs font-semibold text-slate-800">MacBook Air</p>
+        <p class="text-[11px] text-slate-400">$1,099</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ══════════ 03 · CARD DE PERFIL ══════════ -->
+  <section id="perfil" class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">03 · Personas</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Cards de perfil y equipo</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+
+      <!-- Perfil centrado -->
+      <article class="card card-hover p-6 text-center">
+        <div class="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 text-lg font-semibold text-white shadow-lg shadow-indigo-500/25">
+          JR
+        </div>
+        <h3 class="mt-3 text-sm font-semibold text-slate-900">Jorge Ramírez</h3>
+        <p class="text-xs text-slate-400">Administrador</p>
+        <div class="mt-3 flex items-center justify-center gap-1.5">
+          <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+          <span class="text-[11px] font-medium text-emerald-600">En línea</span>
+        </div>
+        <div class="mt-4 flex justify-center gap-2">
+          <button class="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-brand-700">Mensaje</button>
+          <button class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50">Perfil</button>
+        </div>
+      </article>
+
+      <!-- Perfil horizontal -->
+      <article class="card card-hover flex items-center gap-3 p-4">
+        <div class="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-violet-100 text-sm font-semibold text-violet-700">CR</div>
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-semibold text-slate-900">Carlos Ruiz</p>
+          <p class="truncate text-[11px] text-slate-400">Agente de ventas</p>
+          <div class="mt-1.5 flex items-center gap-1">
+            <span class="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600">Ocupado</span>
+            <span class="text-[10px] text-slate-400">· 3 pedidos</span>
+          </div>
+        </div>
+        <button class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+        </button>
+      </article>
+
+      <!-- Perfil con estadísticas -->
+      <article class="card card-hover overflow-hidden">
+        <div class="h-16 bg-gradient-to-r from-indigo-500 to-sky-400"></div>
+        <div class="-mt-8 px-5 pb-5">
+          <div class="grid h-14 w-14 place-items-center rounded-full bg-white text-sm font-semibold text-indigo-700 shadow-md ring-4 ring-white">LF</div>
+          <h3 class="mt-2 text-sm font-semibold text-slate-900">Lucía Fernández</h3>
+          <p class="text-[11px] text-slate-400">Soporte al cliente</p>
+          <div class="mt-3 grid grid-cols-3 divide-x divide-slate-100 border-t border-slate-100 pt-3 text-center">
+            <div>
+              <p class="text-sm font-semibold text-slate-900">128</p>
+              <p class="text-[10px] uppercase tracking-wider text-slate-400">Pedidos</p>
+            </div>
+            <div>
+              <p class="text-sm font-semibold text-slate-900">8m</p>
+              <p class="text-[10px] uppercase tracking-wider text-slate-400">1ª resp.</p>
+            </div>
+            <div>
+              <p class="text-sm font-semibold text-slate-900">98%</p>
+              <p class="text-[10px] uppercase tracking-wider text-slate-400">SLA</p>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Perfil con avatar apilado -->
+      <article class="card card-hover p-5">
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Equipo</p>
+        <h3 class="mt-2 text-sm font-semibold text-slate-900">Equipo de importación</h3>
+        <div class="mt-3 flex -space-x-2">
+          <div class="grid h-8 w-8 place-items-center rounded-full bg-indigo-100 text-[10px] font-semibold text-indigo-700 ring-2 ring-white">MG</div>
+          <div class="grid h-8 w-8 place-items-center rounded-full bg-violet-100 text-[10px] font-semibold text-violet-700 ring-2 ring-white">CR</div>
+          <div class="grid h-8 w-8 place-items-center rounded-full bg-sky-100 text-[10px] font-semibold text-sky-700 ring-2 ring-white">LF</div>
+          <div class="grid h-8 w-8 place-items-center rounded-full bg-emerald-100 text-[10px] font-semibold text-emerald-700 ring-2 ring-white">AM</div>
+          <div class="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-600 ring-2 ring-white">+8</div>
+        </div>
+        <p class="mt-3 text-xs leading-relaxed text-slate-500">12 miembros activos esta semana. 3 pendientes de asignación.</p>
+        <a href="#" class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700">
+          Ver equipo
+          <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </a>
+      </article>
+    </div>
+  </section>
+
+  <!-- ══════════ 04 · CARD DE MÉTRICAS ══════════ -->
+  <section id="metricas" class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">04 · Datos</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Cards de métricas y KPIs</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+
+      <!-- KPI con sparkline -->
+      <article class="card card-hover card-topline text-brand-500 p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Ventas del mes</p>
+            <p class="mt-2 text-2xl font-semibold text-slate-900">$84.2k</p>
+          </div>
+          <span class="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-600">+12%</span>
+        </div>
+        <svg viewBox="0 0 100 24" class="mt-4 h-8 w-full" preserveAspectRatio="none">
+          <path d="M0,18 L10,15 L20,17 L30,10 L40,13 L50,8 L60,11 L70,5 L80,9 L90,4 L100,6"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </article>
+
+      <!-- KPI con barra -->
+      <article class="card card-hover p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">SLA cumplido</p>
+            <p class="mt-2 text-2xl font-semibold text-slate-900">96.4%</p>
+          </div>
+          <div class="grid h-9 w-9 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          </div>
+        </div>
+        <div class="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div class="h-full w-[96%] rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"></div>
+        </div>
+        <p class="mt-2 text-[11px] text-slate-400">Meta: 95%</p>
+      </article>
+
+      <!-- KPI con icono grande -->
+      <article class="card card-hover p-5">
+        <div class="flex items-center gap-3">
+          <div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-500">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8m-8 4h5m4 6H7a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v9l-4 5z"/></svg>
+          </div>
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Consultas</p>
+            <p class="text-2xl font-semibold text-slate-900">7</p>
+          </div>
+        </div>
+        <p class="mt-3 text-xs text-slate-500"><span class="font-semibold text-amber-600">+3 nuevas</span> en la última hora</p>
+      </article>
+
+      <!-- KPI oscura -->
+      <article class="card-hover rounded-2xl bg-slate-900 p-5 shadow-card">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Pedidos activos</p>
+            <p class="mt-2 text-2xl font-semibold text-white">34</p>
+          </div>
+          <div class="grid h-9 w-9 place-items-center rounded-xl bg-white/10 text-sky-300">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center gap-1.5">
+          <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-slate-200">8 en tránsito</span>
+          <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-slate-200">3 aduana</span>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ══════════ 05 · CARD DE ACCIÓN / CTA ══════════ -->
+  <section id="acciones" class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">05 · Acciones</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Cards de acción y planes</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+      <!-- Acción rápida -->
+      <article class="card card-hover flex flex-col p-5">
+        <div class="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+        </div>
+        <h3 class="mt-3 text-sm font-semibold text-slate-900">Nuevo pedido</h3>
+        <p class="mt-1 flex-1 text-xs leading-relaxed text-slate-500">Registra una nueva importación con IMEI, modelo y cliente en menos de un minuto.</p>
+        <button class="mt-4 inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-indigo-600/20 transition hover:bg-brand-700">
+          Crear pedido
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+      </article>
+
+      <!-- Acción secundaria con lista -->
+      <article class="card card-hover p-5">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-slate-900">Tareas pendientes</h3>
+          <span class="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">3</span>
+        </div>
+        <ul class="mt-3 space-y-2.5">
+          <li class="flex items-center gap-2 text-xs">
+            <span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+            <span class="flex-1 text-slate-600">Validar 3 IMEI en aduana</span>
+            <span class="text-slate-400">hoy</span>
+          </li>
+          <li class="flex items-center gap-2 text-xs">
+            <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+            <span class="flex-1 text-slate-600">Confirmar pago de #IP-2047</span>
+            <span class="text-slate-400">mañana</span>
+          </li>
+          <li class="flex items-center gap-2 text-xs">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+            <span class="flex-1 text-slate-600">Enviar factura a Andrés M.</span>
+            <span class="text-slate-400">14 nov</span>
+          </li>
+        </ul>
+        <button class="mt-4 w-full rounded-xl border border-slate-200 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">
+          Ver todas las tareas
+        </button>
+      </article>
+
+      <!-- Plan / pricing -->
+      <article class="card-hover relative overflow-hidden rounded-2xl border-2 border-brand-500 bg-white p-5 shadow-lift">
+        <span class="absolute right-4 top-4 rounded-full bg-brand-600 px-2 py-0.5 text-[10px] font-semibold text-white">Recomendado</span>
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-brand-600">Plan Pro</p>
+        <div class="mt-2 flex items-end gap-1">
+          <p class="text-3xl font-semibold tracking-tight text-slate-900">$79</p>
+          <p class="mb-1 text-xs text-slate-400">/mes</p>
+        </div>
+        <p class="mt-2 text-xs text-slate-500">Para equipos de importación con alto volumen.</p>
+        <ul class="mt-4 space-y-2">
+          <li class="flex items-center gap-2 text-xs text-slate-600">
+            <svg class="h-3.5 w-3.5 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            Pedidos ilimitados
+          </li>
+          <li class="flex items-center gap-2 text-xs text-slate-600">
+            <svg class="h-3.5 w-3.5 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            Soporte prioritario 24/7
+          </li>
+          <li class="flex items-center gap-2 text-xs text-slate-600">
+            <svg class="h-3.5 w-3.5 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            Integración con aduanas
+          </li>
+        </ul>
+        <button class="mt-5 w-full rounded-xl bg-brand-600 py-2.5 text-sm font-medium text-white shadow-lg shadow-indigo-600/20 transition hover:bg-brand-700">
+          Elegir plan
+        </button>
+      </article>
+    </div>
+  </section>
+
+  <!-- ══════════ 06 · CARD DE CONTENIDO ══════════ -->
+  <section id="contenido" class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">06 · Contenido</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Cards editoriales y de notificación</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+      <!-- Artículo con imagen -->
+      <article class="card card-hover overflow-hidden lg:col-span-2">
+        <div class="relative h-40 overflow-hidden bg-gradient-to-br from-indigo-500 via-purple-500 to-sky-400">
+          <div class="card-img absolute inset-0 opacity-20" style="background-image:radial-gradient(circle at 20% 30%, white 0, transparent 40%), radial-gradient(circle at 80% 70%, white 0, transparent 40%);"></div>
+          <span class="absolute left-4 top-4 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-indigo-700 backdrop-blur">Guía</span>
+        </div>
+        <div class="p-5">
+          <div class="flex items-center gap-2 text-[11px] text-slate-400">
+            <span>Importación</span>
+            <span class="text-slate-300">·</span>
+            <span>5 min de lectura</span>
+          </div>
+          <h3 class="mt-2 text-base font-semibold text-slate-900">Cómo optimizar la logística de importación de iPhone</h3>
+          <p class="mt-2 text-sm leading-relaxed text-slate-500">
+            Estrategias para reducir tiempos de aduana, gestionar garantías internacionales y mantener trazabilidad de IMEI en cada pedido.
+          </p>
+          <div class="mt-4 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="grid h-8 w-8 place-items-center rounded-full bg-indigo-100 text-[10px] font-semibold text-indigo-700">JR</div>
+              <div class="leading-tight">
+                <p class="text-xs font-medium text-slate-800">Jorge Ramírez</p>
+                <p class="text-[10px] text-slate-400">12 Nov 2026</p>
+              </div>
+            </div>
+            <a href="#" class="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700">
+              Leer
+              <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+            </a>
+          </div>
+        </div>
+      </article>
+
+      <!-- Notificación -->
+      <div class="space-y-4">
+        <article class="card card-hover p-4">
+          <div class="flex items-start gap-3">
+            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-slate-800">Pago confirmado</p>
+              <p class="mt-0.5 text-xs text-slate-500">Se acreditó $1,299 por el pedido #IP-2048.</p>
+              <p class="mt-1.5 text-[10px] text-slate-400">hace 4 min</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="card card-hover p-4">
+          <div class="flex items-start gap-3">
+            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-500">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-slate-800">SLA próximo a vencer</p>
+              <p class="mt-0.5 text-xs text-slate-500">3 consultas llevan más de 12 minutos sin responder.</p>
+              <p class="mt-1.5 text-[10px] text-slate-400">hace 22 min</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="card card-hover p-4">
+          <div class="flex items-start gap-3">
+            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-600">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-slate-800">Guía actualizada</p>
+              <p class="mt-0.5 text-xs text-slate-500">DHL #7841-2290-1187 llegó a Lima.</p>
+              <p class="mt-1.5 text-[10px] text-slate-400">hace 1 h</p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 07 · ESTADOS ══════════ -->
+  <section id="estados" class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">07 · Estados</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Cards de estado: carga, vacío y error</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+      <!-- Skeleton -->
+      <article class="card p-5">
+        <div class="flex items-center gap-3">
+          <div class="skeleton h-10 w-10 rounded-full"></div>
+          <div class="flex-1 space-y-2">
+            <div class="skeleton h-2.5 w-2/5 rounded-full"></div>
+            <div class="skeleton h-2 w-3/5 rounded-full"></div>
+          </div>
+        </div>
+        <div class="mt-4 space-y-2">
+          <div class="skeleton h-2.5 w-full rounded-full"></div>
+          <div class="skeleton h-2.5 w-4/5 rounded-full"></div>
+          <div class="skeleton h-2.5 w-3/5 rounded-full"></div>
+        </div>
+        <div class="mt-4 flex gap-2">
+          <div class="skeleton h-7 w-20 rounded-lg"></div>
+          <div class="skeleton h-7 w-20 rounded-lg"></div>
+        </div>
+      </article>
+
+      <!-- Estado vacío -->
+      <article class="card flex flex-col items-center justify-center p-8 text-center">
+        <div class="grid h-14 w-14 place-items-center rounded-full bg-slate-100 text-slate-400">
+          <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 13V7a2 2 0 00-2-2H6a2 2 0 00-2 2v6m16 0v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4m16 0h-5l-2 3H9l-2-3H4"/></svg>
+        </div>
+        <p class="mt-3 text-sm font-semibold text-slate-800">Sin pedidos aún</p>
+        <p class="mt-1 max-w-[220px] text-xs leading-relaxed text-slate-400">Crea tu primer pedido para comenzar a gestionar tus importaciones.</p>
+        <button class="mt-4 rounded-lg bg-brand-600 px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-brand-700">
+          Crear pedido
+        </button>
+      </article>
+
+      <!-- Error -->
+      <article class="card border-rose-200 bg-rose-50/40 p-5">
+        <div class="flex items-start gap-3">
+          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-rose-100 text-rose-600">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-semibold text-rose-900">No se pudo cargar el pedido</p>
+            <p class="mt-1 text-xs leading-relaxed text-rose-700/80">Verifica tu conexión o vuelve a intentarlo. El código de error es <span class="font-mono font-medium">IP-ERR-2048</span>.</p>
+            <button class="mt-3 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 transition hover:bg-rose-50">
+              Reintentar
+            </button>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ══════════ 08 · CARD INTERACTIVA ══════════ -->
+  <section class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">08 · Interacción</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Cards interactivas (hover con resplandor)</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+
+      <button class="card card-hover card-glow group text-left p-5">
+        <div class="flex items-start justify-between">
+          <div class="grid h-10 w-10 place-items-center rounded-xl bg-indigo-50 text-indigo-600 transition group-hover:bg-indigo-100">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          </div>
+          <svg class="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-brand-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </div>
+        <p class="mt-3 text-sm font-semibold text-slate-900">Pedidos</p>
+        <p class="mt-1 text-xs leading-relaxed text-slate-500">Gestiona y consulta todos los pedidos activos de importación.</p>
+        <span class="mt-3 inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">34 activos</span>
+      </button>
+
+      <button class="card card-hover card-glow group text-left p-5">
+        <div class="flex items-start justify-between">
+          <div class="grid h-10 w-10 place-items-center rounded-xl bg-rose-50 text-rose-500 transition group-hover:bg-rose-100">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8m-8 4h5m4 6H7a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v9l-4 5z"/></svg>
+          </div>
+          <svg class="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-brand-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </div>
+        <p class="mt-3 text-sm font-semibold text-slate-900">Consultas</p>
+        <p class="mt-1 text-xs leading-relaxed text-slate-500">Responde a los clientes y mantén el SLA dentro de los tiempos.</p>
+        <span class="mt-3 inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-600">7 pendientes</span>
+      </button>
+
+      <button class="card card-hover card-glow group text-left p-5">
+        <div class="flex items-start justify-between">
+          <div class="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600 transition group-hover:bg-emerald-100">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          </div>
+          <svg class="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-brand-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </div>
+        <p class="mt-3 text-sm font-semibold text-slate-900">KPIs de respuesta</p>
+        <p class="mt-1 text-xs leading-relaxed text-slate-500">Analiza el rendimiento del equipo y el cumplimiento de SLA.</p>
+        <span class="mt-3 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">96.4% SLA</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ══════════ PIE ══════════ -->
+  <footer class="border-t border-slate-200 pt-6">
+    <div class="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+      <p class="text-xs text-slate-400">iImport UI Kit · Librería de cards basada en el panel de pedidos.</p>
+      <div class="flex items-center gap-3 text-xs">
+        <a href="#base" class="text-slate-500 hover:text-slate-800">Volver arriba ↑</a>
+        <span class="text-slate-300">·</span>
+        <span class="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-500">Tailwind CDN</span>
+      </div>
+    </div>
+  </footer>
+
+</main>
+
+<script>
+  // Resplandor que sigue al cursor en cards con .card-glow
+  document.querySelectorAll('.card-glow').forEach(card => {
+    card.addEventListener('pointermove', (e) => {
+      const r = card.getBoundingClientRect();
+      card.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      card.style.setProperty('--my', `${e.clientY - r.top}px`);
+    });
+  });
+</script>
+
+</body>
+</html>

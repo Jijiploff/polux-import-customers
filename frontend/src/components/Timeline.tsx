@@ -162,7 +162,7 @@ export function Timeline({
             </>
           )}
         </div>
-        <label style={{
+        <label className="timeline-toggle" style={{
           display: "flex", gap: "0.4rem", alignItems: "center",
           fontSize: "0.78rem", color: "#475569", cursor: "pointer",
           whiteSpace: "nowrap",
@@ -173,7 +173,7 @@ export function Timeline({
             onChange={alternarMensajes}
             disabled={cargando}
           />
-          Ver todos los mensajes e interacciones
+          <span>Ver todos los mensajes e interacciones</span>
         </label>
       </div>
 

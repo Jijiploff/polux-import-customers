@@ -57,7 +57,7 @@ export function Layout() {
   }, [roles]);
 
   return (
-    <div className="lay-raiz" style={{ display: "flex", minHeight: "100vh", fontFamily: "system-ui" }}>
+    <div className="lay-raiz" style={{ display: "flex", minHeight: "100vh" }}>
       <style>{`
         /* Menú lateral que se adapta a pantallas angostas (móvil/tablet) */
         @media (max-width: 760px) {
@@ -103,10 +103,11 @@ export function Layout() {
               end
               style={({ isActive }) => ({
                 padding: "0.55rem 1.25rem",
-                color: isActive ? "#93c5fd" : "#cbd5e1",
+                color: isActive ? "#a5b4fc" : "#cbd5e1",
                 textDecoration: "none",
-                borderLeft: isActive ? "3px solid #93c5fd" : "3px solid transparent",
+                borderLeft: isActive ? "3px solid #a5b4fc" : "3px solid transparent",
                 fontSize: "0.9rem",
+                background: isActive ? "rgba(99, 102, 241, .16)" : "transparent",
               })}
             >
               {l.label}
@@ -125,7 +126,7 @@ export function Layout() {
           </span>
           <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
             <span>{nombre}</span>
-            <button onClick={() => { logout(); nav("/login"); }}>Salir</button>
+            <button className="top-action" onClick={() => { logout(); nav("/login"); }}>Salir</button>
           </div>
         </header>
         <main className="lay-main" style={{ flex: 1, padding: "1.5rem", background: "#f8fafc" }}>

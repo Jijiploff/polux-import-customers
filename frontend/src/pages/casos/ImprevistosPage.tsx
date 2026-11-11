@@ -88,7 +88,7 @@ export function ImprevistosPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="page-toolbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1 style={{ marginTop: 0 }}>Imprevistos</h1>
         {hasRole("ADMIN", "OPERADOR") && (
           <button onClick={openForm}>+ Nuevo imprevisto</button>

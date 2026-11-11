@@ -40,7 +40,7 @@ export function AdminOpsPage() {
       </div>
       {error && <p style={{ color: "crimson" }}>{error}</p>}
       {resp && (
-        <div style={{ background: "white", borderRadius: 8, padding: "1rem" }}>
+        <div className="panel" style={{ background: "white", borderRadius: 8, padding: "1rem" }}>
           <h3 style={{ marginTop: 0 }}>{resp.label}</h3>
           <pre style={{ fontSize: "0.85rem" }}>
             {JSON.stringify(resp.data, null, 2)}

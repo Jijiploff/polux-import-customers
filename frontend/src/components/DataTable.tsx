@@ -9,13 +9,14 @@ export interface Column<T> {
 export function DataTable<T>({
   columns, rows, empty = "Sin registros",
 }: { columns: Column<T>[]; rows: T[]; empty?: string }) {
-  if (!rows.length) return <div style={{ padding: "1rem" }}>{empty}</div>;
+  if (!rows.length) return <div className="empty-state">{empty}</div>;
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
+    <div className="data-table-wrap">
+      <table className="data-table">
       <thead>
         <tr style={{ background: "#f1f5f9" }}>
           {columns.map((c) => (
-            <th key={c.key} style={{ textAlign: "left", padding: "8px 12px", borderBottom: "1px solid #e2e8f0" }}>
+            <th key={c.key} style={{ textAlign: "left" }}>
               {c.header}
             </th>
           ))}
@@ -23,15 +24,16 @@ export function DataTable<T>({
       </thead>
       <tbody>
         {rows.map((r, i) => (
-          <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+          <tr key={i}>
             {columns.map((c) => (
-              <td key={c.key} style={{ padding: "8px 12px", verticalAlign: "top" }}>
+              <td key={c.key} style={{ verticalAlign: "top" }}>
                 {c.render(r)}
               </td>
             ))}
           </tr>
         ))}
       </tbody>
-    </table>
+      </table>
+    </div>
   );
 }

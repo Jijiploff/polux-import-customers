@@ -32,15 +32,12 @@ function KpiCard({ titulo, valor, semaforo, sufijo }: {
     : semaforo === "ALERTA" ? "#f59e0b"
     : semaforo === "CRITICO" ? "#dc2626" : "#94a3b8";
   return (
-    <div style={{
-      background: "white", borderRadius: 8, padding: "1rem",
-      borderLeft: `4px solid ${color}`, boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
-    }}>
-      <p style={{ margin: 0, fontSize: "0.8rem", color: "#64748b" }}>{titulo}</p>
-      <p style={{ margin: "0.3rem 0 0", fontSize: "1.6rem", fontWeight: 700 }}>
+    <div className={`kpi-card kpi-${semaforo.toLowerCase()}`}>
+      <p className="kpi-title">{titulo}</p>
+      <p className="kpi-value">
         {valor != null ? valor.toFixed(2) : "—"}{sufijo ?? ""}
       </p>
-      <p style={{ margin: 0, fontSize: "0.75rem", color }}>{semaforo}</p>
+      <p className="kpi-state" style={{ color }}>{semaforo}</p>
     </div>
   );
 }
@@ -63,11 +60,21 @@ export function DashboardPage() {
 
   useEffect(() => {
     if (!hasRole("ADMIN", "GERENTE") || !filters.desde || !filters.hasta) return;
+    let active = true;
     setLoadingSerie(true);
     kpisApi.serie(kpiSel, filters)
-      .then(setSerie)
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoadingSerie(false));
+      .then((nextSerie) => {
+        if (active) setSerie(nextSerie);
+      })
+      .catch((e) => {
+        if (active) setError(String(e));
+      })
+      .finally(() => {
+        if (active) setLoadingSerie(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [hasRole, kpiSel, filters]);
 
   if (!hasRole("ADMIN", "GERENTE")) {
@@ -83,8 +90,8 @@ export function DashboardPage() {
 
   return (
     <div>
-      <h1 style={{ marginTop: 0 }}>Dashboard de KPIs</h1>
-      <p style={{ color: "#64748b", fontSize: "0.9rem" }}>
+      <h1 className="page-heading">Dashboard de KPIs</h1>
+      <p className="page-subtitle">
         Cifras calculadas por SQL sobre <code>fact_*</code> / <code>vw_kpi_*</code>.
         La IA no interviene.
       </p>
@@ -94,7 +101,7 @@ export function DashboardPage() {
       <h2>Snapshot actual</h2>
       <div style={{
         display: "grid", gap: "1rem", marginBottom: "1.5rem",
-        gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 190px), 1fr))",
       }}>
         {KPI_META.map((m) => {
           const snap = resumen[m.key] as any;
@@ -108,22 +115,27 @@ export function DashboardPage() {
       </div>
 
       <h2>Evolución del KPI seleccionado</h2>
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem",
-                    flexWrap: "wrap" }}>
+      <div className="kpi-tabs">
         {KPI_META.map((m) => (
-          <button key={m.codigo} onClick={() => setKpiSel(m.codigo)}
-            style={{
-              background: kpiSel === m.codigo ? "#0b57d0" : "white",
-              color: kpiSel === m.codigo ? "white" : "#0f172a",
-              border: "1px solid #cbd5e1",
-            }}>
+          <button
+            type="button"
+            key={m.codigo}
+            onClick={(event) => {
+              event.preventDefault();
+              setKpiSel(m.codigo);
+            }}
+            className={kpiSel === m.codigo ? "kpi-tab-active" : undefined}>
             {m.titulo}
           </button>
         ))}
       </div>
-      <div style={{ background: "white", padding: "1rem", borderRadius: 8 }}>
-        {loadingSerie ? <Loading label="Cargando serie…" /> :
-          serie ? <KpiChart data={serie} /> : null}
+      <div className="surface-card chart-panel">
+        {serie ? (
+          <div className={loadingSerie ? "chart-content chart-content-loading" : "chart-content"}>
+            <KpiChart data={serie} />
+            {loadingSerie ? <div className="chart-loading-overlay">Actualizando serie…</div> : null}
+          </div>
+        ) : loadingSerie ? <Loading label="Cargando serie…" /> : null}
       </div>
     </div>
   );

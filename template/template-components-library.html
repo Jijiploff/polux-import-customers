@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>iImport · Librería de componentes</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        colors: {
+          brand: { 50:'#eef2ff',100:'#e0e7ff',400:'#818cf8',500:'#6366f1',600:'#4f46e5',700:'#4338ca' }
+        },
+        boxShadow: {
+          card: '0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06)'
+        }
+      }
+    }
+  }
+</script>
+
+<style>
+  html { scroll-behavior: smooth; }
+  body { font-feature-settings: "cv02","cv03","cv04","cv11"; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:999px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* Tarjeta base (sin @apply para que funcione con el CDN) */
+  .card {
+    background:#fff;
+    border-radius:1rem;
+    border:1px solid rgba(226,232,240,.75);
+    box-shadow:0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+  }
+
+  /* ═══ KPI animado ═══ */
+  .kpi-card {
+    position:relative;
+    transition: transform .35s cubic-bezier(.22,.61,.36,1),
+                box-shadow .35s cubic-bezier(.22,.61,.36,1),
+                border-color .35s ease;
+    will-change: transform, box-shadow;
+  }
+  .kpi-card:hover {
+    transform: translateY(-6px) scale(1.015);
+    border-color: rgba(99,102,241,.35);
+    box-shadow: 0 10px 20px -6px rgba(15,23,42,.10),
+                0 18px 40px -12px rgba(15,23,42,.14),
+                0 0 0 1px rgba(99,102,241,.08),
+                0 0 32px -6px rgba(99,102,241,.28);
+  }
+  .kpi-card::before {
+    content:""; position:absolute; inset:-2px; border-radius:inherit;
+    background: radial-gradient(120px 90px at var(--mx,50%) var(--my,0%), rgba(99,102,241,.20), transparent 70%);
+    opacity:0; transition:opacity .4s ease; pointer-events:none; z-index:0;
+  }
+  .kpi-card:hover::before { opacity:1; }
+  .kpi-card > * { position:relative; z-index:1; }
+  .kpi-card::after {
+    content:""; position:absolute; top:0; left:12px; right:12px; height:3px;
+    border-radius:0 0 999px 999px;
+    background: linear-gradient(90deg, transparent, currentColor, transparent);
+    opacity:0; transform:scaleX(.4);
+    transition: opacity .35s ease, transform .45s cubic-bezier(.22,.61,.36,1);
+    pointer-events:none;
+  }
+  .kpi-card:hover::after { opacity:.7; transform:scaleX(1); }
+  .kpi-brand{color:#6366f1} .kpi-amber{color:#f59e0b} .kpi-sky{color:#0ea5e9} .kpi-emerald{color:#10b981}
+  .kpi-icon { transition: transform .4s cubic-bezier(.22,.61,.36,1), box-shadow .4s ease; }
+  .kpi-card:hover .kpi-icon { transform: scale(1.1) rotate(-4deg); box-shadow: 0 8px 16px -6px currentColor; }
+
+  /* Animación de entrada */
+  @keyframes fadeUp { from {opacity:0; transform:translateY(14px) scale(.98)} to {opacity:1; transform:none} }
+  .enter { opacity:0; animation: fadeUp .55s cubic-bezier(.22,.61,.36,1) forwards; }
+  .enter:nth-child(1){animation-delay:.05s} .enter:nth-child(2){animation-delay:.13s}
+  .enter:nth-child(3){animation-delay:.21s} .enter:nth-child(4){animation-delay:.29s}
+
+  /* Skeleton */
+  @keyframes shimmer { 100% { transform: translateX(100%); } }
+  .skeleton { position:relative; overflow:hidden; background:#eef2f7; }
+  .skeleton::after {
+    content:""; position:absolute; inset:0; transform:translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.75), transparent);
+    animation: shimmer 1.6s infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .kpi-card, .kpi-icon, .kpi-card::before, .kpi-card::after { transition:none !important; }
+    .enter { opacity:1; animation:none; }
+    .skeleton::after { animation:none; }
+  }
+</style>
+</head>
+
+<body class="bg-[#f5f6f8] text-slate-700 font-sans antialiased">
+
+<!-- ══════════ TOP BAR ══════════ -->
+<header class="sticky top-0 z-30 border-b border-slate-200/70 bg-[#f5f6f8]/85 backdrop-blur-md">
+  <div class="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center gap-3">
+      <div class="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-lg shadow-indigo-500/25">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+        </svg>
+      </div>
+      <div class="leading-tight">
+        <p class="text-sm font-semibold text-slate-800">iImport · UI Kit</p>
+        <p class="text-[11px] text-slate-400">Librería de componentes</p>
+      </div>
+    </div>
+
+    <nav class="ml-auto hidden items-center gap-1 xl:flex">
+      <a href="#color" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Color</a>
+      <a href="#tipografia" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Tipografía</a>
+      <a href="#botones" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Botones</a>
+      <a href="#estados" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Estados</a>
+      <a href="#datos" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Datos</a>
+      <a href="#paneles" class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800">Paneles</a>
+    </nav>
+
+    <div class="ml-auto flex items-center gap-2 xl:ml-0">
+      <span class="hidden rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500 sm:inline">v1.0</span>
+      <div class="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 text-xs font-semibold text-white">JR</div>
+    </div>
+  </div>
+</header>
+
+<main class="mx-auto max-w-7xl space-y-14 px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
+
+  <!-- ══════════ HERO ══════════ -->
+  <section>
+    <p class="text-[11px] font-semibold uppercase tracking-wider text-brand-600">Sistema de diseño</p>
+    <h1 class="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Componentes de interfaz</h1>
+    <p class="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500">
+      Bloques reutilizables para construir pantallas del sistema de pedidos: listas, indicadores, paneles, tablas,
+      líneas de tiempo y controles. Todos comparten los mismos tokens de color, radio, sombra y espaciado.
+    </p>
+
+    <div class="mt-6 flex flex-wrap gap-2">
+      <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">Inter · 400–700</span>
+      <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">Radio 16px</span>
+      <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">Grid 4px</span>
+      <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">Sombra suave</span>
+      <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">Motion 350ms</span>
+    </div>
+  </section>
+
+  <!-- ══════════ 01 · COLOR ══════════ -->
+  <section id="color" class="scroll-mt-24">
+    <div class="mb-5 flex items-end justify-between gap-4">
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">01 · Fundamentos</p>
+        <h2 class="mt-1 text-lg font-semibold text-slate-900">Paleta de color</h2>
+      </div>
+      <span class="hidden text-xs text-slate-400 sm:block">Brand · Semánticos · Neutros</span>
+    </div>
+
+    <!-- Brand -->
+    <p class="mb-2 text-xs font-semibold text-slate-500">Marca</p>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-14 bg-brand-50"></div>
+        <div class="p-2.5"><p class="text-xs font-medium text-slate-800">50</p><p class="text-[10px] text-slate-400">#eef2ff</p></div>
+      </div>
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-14 bg-brand-100"></div>
+        <div class="p-2.5"><p class="text-xs font-medium text-slate-800">100</p><p class="text-[10px] text-slate-400">#e0e7ff</p></div>
+      </div>
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-14 bg-brand-400"></div>
+        <div class="p-2.5"><p class="text-xs font-medium text-slate-800">400</p><p class="text-[10px] text-slate-400">#818cf8</p></div>
+      </div>
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-14 bg-brand-500"></div>
+        <div class="p-2.5"><p class="text-xs font-medium text-slate-800">500</p><p class="text-[10px] text-slate-400">#6366f1</p></div>
+      </div>
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-14 bg-brand-600"></div>
+        <div class="p-2.5"><p class="text-xs font-medium text-slate-800">600</p><p class="text-[10px] text-slate-400">#4f46e5</p></div>
+      </div>
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-14 bg-brand-700"></div>
+        <div class="p-2.5"><p class="text-xs font-medium text-slate-800">700</p><p class="text-[10px] text-slate-400">#4338ca</p></div>
+      </div>
+    </div>
+
+    <!-- Semánticos -->
+    <p class="mb-2 mt-6 text-xs font-semibold text-slate-500">Semánticos</p>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+        <span class="grid h-7 w-7 place-items-center rounded-lg bg-emerald-500 text-white">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        </span>
+        <p class="mt-2 text-xs font-semibold text-emerald-700">Éxito</p>
+        <p class="text-[10px] text-emerald-600/80">#10b981</p>
+      </div>
+      <div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
+        <span class="grid h-7 w-7 place-items-center rounded-lg bg-amber-500 text-white">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+        </span>
+        <p class="mt-2 text-xs font-semibold text-amber-700">Aviso</p>
+        <p class="text-[10px] text-amber-600/80">#f59e0b</p>
+      </div>
+      <div class="rounded-xl border border-sky-200 bg-sky-50 p-3">
+        <span class="grid h-7 w-7 place-items-center rounded-lg bg-sky-500 text-white">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </span>
+        <p class="mt-2 text-xs font-semibold text-sky-700">Info</p>
+        <p class="text-[10px] text-sky-600/80">#0ea5e9</p>
+      </div>
+      <div class="rounded-xl border border-rose-200 bg-rose-50 p-3">
+        <span class="grid h-7 w-7 place-items-center rounded-lg bg-rose-500 text-white">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </span>
+        <p class="mt-2 text-xs font-semibold text-rose-700">Error</p>
+        <p class="text-[10px] text-rose-600/80">#f43f5e</p>
+      </div>
+      <div class="rounded-xl border border-violet-200 bg-violet-50 p-3">
+        <span class="grid h-7 w-7 place-items-center rounded-lg bg-violet-500 text-white">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        </span>
+        <p class="mt-2 text-xs font-semibold text-violet-700">Proceso</p>
+        <p class="text-[10px] text-violet-600/80">#8b5cf6</p>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <span class="grid h-7 w-7 place-items-center rounded-lg bg-slate-400 text-white">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18 12H6"/></svg>
+        </span>
+        <p class="mt-2 text-xs font-semibold text-slate-700">Neutro</p>
+        <p class="text-[10px] text-slate-500">#94a3b8</p>
+      </div>
+    </div>
+
+    <!-- Neutros -->
+    <p class="mb-2 mt-6 text-xs font-semibold text-slate-500">Superficies y neutros</p>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-12 bg-white"></div>
+        <div class="border-t border-slate-100 p-2"><p class="text-[11px] font-medium text-slate-700">Fondo card</p><p class="text-[10px] text-slate-400">#ffffff</p></div>
+      </div>
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-12 bg-[#f5f6f8]"></div>
+        <div class="border-t border-slate-100 p-2"><p class="text-[11px] font-medium text-slate-700">Fondo app</p><p class="text-[10px] text-slate-400">#f5f6f8</p></div>
+      </div>
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-12 bg-slate-50"></div>
+        <div class="border-t border-slate-100 p-2"><p class="text-[11px] font-medium text-slate-700">Subtle</p><p class="text-[10px] text-slate-400">#f8fafc</p></div>
+      </div>
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-12 bg-slate-100"></div>
+        <div class="border-t border-slate-100 p-2"><p class="text-[11px] font-medium text-slate-700">Muted</p><p class="text-[10px] text-slate-400">#f1f5f9</p></div>
+      </div>
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-12 bg-slate-200"></div>
+        <div class="border-t border-slate-100 p-2"><p class="text-[11px] font-medium text-slate-700">Borde</p><p class="text-[10px] text-slate-400">#e2e8f0</p></div>
+      </div>
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-12 bg-slate-400"></div>
+        <div class="border-t border-slate-100 p-2"><p class="text-[11px] font-medium text-slate-700">Secundario</p><p class="text-[10px] text-slate-400">#94a3b8</p></div>
+      </div>
+      <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div class="h-12 bg-slate-800"></div>
+        <div class="border-t border-slate-100 p-2"><p class="text-[11px] font-medium text-slate-700">Texto</p><p class="text-[10px] text-slate-400">#1e293b</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 02 · TIPOGRAFÍA ══════════ -->
+  <section id="tipografia" class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">02 · Fundamentos</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Tipografía</h2>
+    </div>
+
+    <div class="card divide-y divide-slate-100 overflow-hidden">
+      <div class="flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-baseline sm:justify-between">
+        <p class="text-3xl font-semibold tracking-tight text-slate-900">Panel de pedidos</p>
+        <code class="text-[11px] text-slate-400">text-3xl · 600 · tracking-tight</code>
+      </div>
+      <div class="flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-baseline sm:justify-between">
+        <p class="text-xl font-semibold tracking-tight text-slate-900">Pedidos recientes</p>
+        <code class="text-[11px] text-slate-400">text-xl · 600 · títulos de sección</code>
+      </div>
+      <div class="flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-baseline sm:justify-between">
+        <p class="text-sm font-semibold text-slate-900">Consultas de clientes</p>
+        <code class="text-[11px] text-slate-400">text-sm · 600 · encabezado de card</code>
+      </div>
+      <div class="flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-baseline sm:justify-between">
+        <p class="text-sm text-slate-600">Texto de cuerpo para descripciones y filas de tabla.</p>
+        <code class="text-[11px] text-slate-400">text-sm · 400 · cuerpo</code>
+      </div>
+      <div class="flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-baseline sm:justify-between">
+        <p class="text-xs text-slate-500">Texto auxiliar, fechas y metadatos.</p>
+        <code class="text-[11px] text-slate-400">text-xs · 400 · auxiliar</code>
+      </div>
+      <div class="flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-baseline sm:justify-between">
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Etiqueta de sección</p>
+        <code class="text-[11px] text-slate-400">text-[11px] · 600 · uppercase</code>
+      </div>
+      <div class="flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-baseline sm:justify-between">
+        <p class="text-2xl font-semibold text-slate-900">12m 40s</p>
+        <code class="text-[11px] text-slate-400">text-2xl · 600 · métrica</code>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 03 · BOTONES ══════════ -->
+  <section id="botones" class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">03 · Acciones</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Botones</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+      <!-- Variantes -->
+      <div class="card p-5">
+        <p class="mb-4 text-xs font-semibold text-slate-500">Variantes</p>
+        <div class="flex flex-wrap items-center gap-2.5">
+          <button class="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-indigo-600/20 transition hover:bg-brand-700">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            Nuevo pedido
+          </button>
+          <button class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            Exportar
+          </button>
+          <button class="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100">Cancelar</button>
+          <button class="rounded-xl bg-rose-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-rose-600/20 transition hover:bg-rose-700">Eliminar</button>
+          <button class="rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-400 cursor-not-allowed" disabled>Deshabilitado</button>
+        </div>
+        <p class="mt-4 text-[11px] text-slate-400">Primario · Secundario · Ghost · Destructivo · Disabled</p>
+      </div>
+
+      <!-- Tamaños -->
+      <div class="card p-5">
+        <p class="mb-4 text-xs font-semibold text-slate-500">Tamaños</p>
+        <div class="flex flex-wrap items-center gap-2.5">
+          <button class="rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-brand-700">Pequeño</button>
+          <button class="rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-indigo-600/20 transition hover:bg-brand-700">Medio</button>
+          <button class="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-brand-700">Grande</button>
+        </div>
+        <p class="mb-3 mt-6 text-xs font-semibold text-slate-500">Solo ícono</p>
+        <div class="flex items-center gap-2">
+          <button class="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-800">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+          </button>
+          <button class="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+          </button>
+          <button class="relative grid h-9 w-9 place-items-center rounded-xl bg-slate-900 text-white transition hover:bg-slate-800">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+            <span class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-rose-500 ring-2 ring-slate-900"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 04 · ESTADOS / BADGES ══════════ -->
+  <section id="estados" class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">04 · Indicadores de estado</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Badges, avatares y contadores</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+      <!-- Badges con punto -->
+      <div class="card p-5">
+        <p class="mb-4 text-xs font-semibold text-slate-500">Badges de estado (con punto)</p>
+        <div class="flex flex-wrap gap-2">
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Entregado
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
+            <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span> En tránsito
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700">
+            <span class="h-1.5 w-1.5 rounded-full bg-violet-500"></span> En aduana
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-700">
+            <span class="h-1.5 w-1.5 rounded-full bg-sky-500"></span> Pago confirmado
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+            <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span> Pendiente
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700">
+            <span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span> Cancelado
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+            <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span> Archivado
+          </span>
+        </div>
+
+        <p class="mb-3 mt-6 text-xs font-semibold text-slate-500">Contadores y pills</p>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">34</span>
+          <span class="rounded-md bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-600">7</span>
+          <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">+3 nuevas</span>
+          <span class="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500">v1.0</span>
+        </div>
+      </div>
+
+      <!-- Avatares -->
+      <div class="card p-5">
+        <p class="mb-4 text-xs font-semibold text-slate-500">Avatares</p>
+        <div class="flex flex-wrap items-end gap-3">
+          <div class="grid h-7 w-7 place-items-center rounded-full bg-indigo-100 text-[10px] font-semibold text-indigo-700">MG</div>
+          <div class="grid h-9 w-9 place-items-center rounded-full bg-violet-100 text-[11px] font-semibold text-violet-700">CR</div>
+          <div class="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 text-xs font-semibold text-white">JR</div>
+          <div class="grid h-12 w-12 place-items-center rounded-full bg-emerald-100 text-sm font-semibold text-emerald-700">AM</div>
+        </div>
+        <p class="mb-3 mt-6 text-xs font-semibold text-slate-500">Grupo apilado</p>
+        <div class="flex -space-x-2">
+          <div class="grid h-8 w-8 place-items-center rounded-full bg-indigo-100 text-[10px] font-semibold text-indigo-700 ring-2 ring-white">MG</div>
+          <div class="grid h-8 w-8 place-items-center rounded-full bg-violet-100 text-[10px] font-semibold text-violet-700 ring-2 ring-white">CR</div>
+          <div class="grid h-8 w-8 place-items-center rounded-full bg-sky-100 text-[10px] font-semibold text-sky-700 ring-2 ring-white">LF</div>
+          <div class="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-600 ring-2 ring-white">+6</div>
+        </div>
+        <p class="mb-3 mt-6 text-xs font-semibold text-slate-500">Con información</p>
+        <div class="flex items-center gap-2.5">
+          <div class="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 text-xs font-semibold text-white">JR</div>
+          <div class="min-w-0 leading-tight">
+            <p class="truncate text-sm font-medium text-slate-800">Jorge Ramírez</p>
+            <p class="truncate text-[11px] text-slate-400">Administrador</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inputs -->
+      <div class="card p-5">
+        <p class="mb-4 text-xs font-semibold text-slate-500">Campos de entrada</p>
+
+        <label class="mb-1.5 block text-[11px] font-semibold text-slate-500">Búsqueda</label>
+        <div class="relative">
+          <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+          <input type="text" placeholder="Buscar pedido, cliente o IMEI…"
+            class="h-9 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 placeholder-slate-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20" />
+        </div>
+
+        <label class="mb-1.5 mt-4 block text-[11px] font-semibold text-slate-500">Selector</label>
+        <select class="h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20">
+          <option>Todos los estados</option>
+          <option>En tránsito</option>
+          <option>En aduana</option>
+        </select>
+
+        <label class="mb-1.5 mt-4 block text-[11px] font-semibold text-slate-500">Con error</label>
+        <input type="text" value="IP-2048-X"
+          class="h-9 w-full rounded-xl border border-rose-300 bg-rose-50/50 px-3 text-sm text-rose-700 outline-none ring-2 ring-rose-500/10" />
+        <p class="mt-1.5 flex items-center gap-1 text-[11px] text-rose-600">
+          <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+          Formato de pedido inválido
+        </p>
+      </div>
+    </div>
+
+    <!-- Tabs + switches + breadcrumb -->
+    <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+      <div class="card p-5">
+        <p class="mb-4 text-xs font-semibold text-slate-500">Pestañas segmentadas</p>
+        <div class="inline-flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+          <button class="rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">Todos</button>
+          <button class="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700">Activos</button>
+          <button class="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700">Cerrados</button>
+        </div>
+
+        <p class="mb-3 mt-6 text-xs font-semibold text-slate-500">Pestañas subrayadas</p>
+        <div class="flex gap-5 border-b border-slate-200">
+          <button class="relative pb-2 text-sm font-medium text-brand-600">
+            Resumen
+            <span class="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-brand-600"></span>
+          </button>
+          <button class="pb-2 text-sm font-medium text-slate-500 hover:text-slate-700">Historial</button>
+          <button class="pb-2 text-sm font-medium text-slate-500 hover:text-slate-700">Documentos</button>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <p class="mb-4 text-xs font-semibold text-slate-500">Interruptores</p>
+        <div class="space-y-4">
+          <label class="flex items-center justify-between gap-4">
+            <span class="text-sm text-slate-600">Notificaciones por correo</span>
+            <span class="relative inline-flex cursor-pointer items-center">
+              <input type="checkbox" class="peer sr-only" checked>
+              <span class="relative h-5 w-9 rounded-full bg-slate-200 transition peer-checked:bg-brand-600 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4"></span>
+            </span>
+          </label>
+
+          <label class="flex items-center justify-between gap-4">
+            <span class="text-sm text-slate-600">Alertas de SLA</span>
+            <span class="relative inline-flex cursor-pointer items-center">
+              <input type="checkbox" class="peer sr-only">
+              <span class="relative h-5 w-9 rounded-full bg-slate-200 transition peer-checked:bg-brand-600 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4"></span>
+            </span>
+          </label>
+        </div>
+
+        <p class="mb-3 mt-6 text-xs font-semibold text-slate-500">Casillas</p>
+        <div class="space-y-2.5">
+          <label class="flex items-center gap-2.5 text-sm text-slate-600">
+            <input type="checkbox" checked class="h-4 w-4 rounded border-slate-300 text-brand-600 accent-brand-600 focus:ring-brand-500" />
+            Incluir pedidos cerrados
+          </label>
+          <label class="flex items-center gap-2.5 text-sm text-slate-600">
+            <input type="checkbox" class="h-4 w-4 rounded border-slate-300 accent-brand-600 focus:ring-brand-500" />
+            Solo mis asignaciones
+          </label>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <p class="mb-4 text-xs font-semibold text-slate-500">Migas de pan</p>
+        <nav class="flex items-center gap-1.5 text-xs">
+          <a href="#" class="text-slate-400 hover:text-slate-600">Pedidos</a>
+          <svg class="h-3 w-3 text-slate-300" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          <a href="#" class="text-slate-400 hover:text-slate-600">Importaciones</a>
+          <svg class="h-3 w-3 text-slate-300" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          <span class="font-medium text-slate-700">#IP-2048</span>
+        </nav>
+
+        <p class="mb-3 mt-6 text-xs font-semibold text-slate-500">Paginación</p>
+        <div class="flex items-center gap-1">
+          <button class="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+          </button>
+          <button class="grid h-8 w-8 place-items-center rounded-lg bg-brand-600 text-xs font-semibold text-white">1</button>
+          <button class="grid h-8 w-8 place-items-center rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">2</button>
+          <button class="grid h-8 w-8 place-items-center rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">3</button>
+          <span class="px-1 text-xs text-slate-400">…</span>
+          <button class="grid h-8 w-8 place-items-center rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">8</button>
+          <button class="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 05 · DATOS / INDICADORES ══════════ -->
+  <section id="datos" class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">05 · Datos</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Indicadores, progreso y métricas</h2>
+    </div>
+
+    <!-- KPIs animados -->
+    <p class="mb-3 text-xs font-semibold text-slate-500">Tarjetas KPI (con animación al hover)</p>
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
+      <div class="kpi-card kpi-brand card enter p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">1ª respuesta</p>
+            <p class="mt-2 text-2xl font-semibold text-slate-900">12m 40s</p>
+          </div>
+          <div class="kpi-icon grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center gap-2 text-xs">
+          <span class="inline-flex items-center gap-0.5 rounded-md bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-600">
+            <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+            18%
+          </span>
+          <span class="text-slate-400">vs. ayer</span>
+        </div>
+      </div>
+
+      <div class="kpi-card kpi-amber card enter p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Consultas pendientes</p>
+            <p class="mt-2 text-2xl font-semibold text-slate-900">7</p>
+          </div>
+          <div class="kpi-icon grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-500">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8m-8 4h5m4 6H7a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v9l-4 5z"/></svg>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center gap-2 text-xs">
+          <span class="rounded-md bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-600">+3 nuevas</span>
+          <span class="text-slate-400">en la última hora</span>
+        </div>
+      </div>
+
+      <div class="kpi-card kpi-sky card enter p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Pedidos activos</p>
+            <p class="mt-2 text-2xl font-semibold text-slate-900">34</p>
+          </div>
+          <div class="kpi-icon grid h-10 w-10 place-items-center rounded-xl bg-sky-50 text-sky-600">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center gap-2 text-xs">
+          <span class="rounded-md bg-sky-50 px-1.5 py-0.5 font-semibold text-sky-600">8 en tránsito</span>
+          <span class="text-slate-400">· 3 en aduana</span>
+        </div>
+      </div>
+
+      <div class="kpi-card kpi-emerald card enter p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">SLA cumplido</p>
+            <p class="mt-2 text-2xl font-semibold text-slate-900">96.4%</p>
+          </div>
+          <div class="kpi-icon grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center gap-2 text-xs">
+          <span class="rounded-md bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-600">Meta 95%</span>
+          <span class="text-slate-400">superada</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Métricas + progreso -->
+    <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+      <!-- Métrica simple -->
+      <div class="card p-5">
+        <p class="mb-4 text-xs font-semibold text-slate-500">Métrica compacta</p>
+        <div class="space-y-4">
+          <div class="flex items-end justify-between">
+            <div>
+              <p class="text-[11px] uppercase tracking-wider text-slate-400">Tiempo medio</p>
+              <p class="mt-1 text-3xl font-semibold tracking-tight text-slate-900">14<span class="text-base font-medium text-slate-400">m</span> 22<span class="text-base font-medium text-slate-400">s</span></p>
+            </div>
+            <span class="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-600">
+              <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+              12%
+            </span>
+          </div>
+          <div class="h-px bg-slate-100"></div>
+          <div>
+            <p class="text-[11px] uppercase tracking-wider text-slate-400">Meta</p>
+            <p class="mt-1 text-lg font-semibold text-slate-700">15m 00s</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Barras de progreso -->
+      <div class="card p-5">
+        <p class="mb-4 text-xs font-semibold text-slate-500">Barras de progreso</p>
+        <div class="space-y-4">
+          <div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-slate-700">Jorge Ramírez</span>
+              <span class="text-slate-400">9m 12s</span>
+            </div>
+            <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div class="h-full w-[92%] rounded-full bg-gradient-to-r from-indigo-500 to-sky-400"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-slate-700">Ana Torres</span>
+              <span class="text-slate-400">12m 40s</span>
+            </div>
+            <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div class="h-full w-[74%] rounded-full bg-gradient-to-r from-indigo-500 to-sky-400"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-slate-700">Luis Paredes</span>
+              <span class="text-slate-400">18m 05s</span>
+            </div>
+            <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div class="h-full w-[52%] rounded-full bg-gradient-to-r from-amber-400 to-amber-500"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-slate-700">SLA global</span>
+              <span class="text-slate-400">96.4%</span>
+            </div>
+            <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div class="h-full w-[96%] rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Donut -->
+      <div class="card flex flex-col p-5">
+        <p class="mb-4 text-xs font-semibold text-slate-500">Anillo de progreso</p>
+        <div class="flex flex-1 items-center justify-center">
+          <div class="relative h-36 w-36">
+            <svg viewBox="0 0 100 100" class="h-full w-full -rotate-90">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#eef2f7" stroke-width="11" />
+              <circle cx="50" cy="50" r="42" fill="none" stroke="url(#g1)" stroke-width="11" stroke-linecap="round" stroke-dasharray="254.4 263.9" />
+              <defs>
+                <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#6366f1" /><stop offset="100%" stop-color="#0ea5e9" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <div class="absolute inset-0 grid place-items-center text-center">
+              <div>
+                <p class="text-2xl font-semibold text-slate-900">96.4%</p>
+                <p class="text-[11px] text-slate-400">SLA cumplido</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 flex items-center justify-center gap-4 text-[11px]">
+          <span class="inline-flex items-center gap-1.5 text-slate-500"><span class="h-2 w-2 rounded-full bg-brand-500"></span>Cumplido</span>
+          <span class="inline-flex items-center gap-1.5 text-slate-500"><span class="h-2 w-2 rounded-full bg-slate-200"></span>Restante</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 06 · LISTAS ══════════ -->
+  <section class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">06 · Listas</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Listas y navegación</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+      <!-- Lista de consultas -->
+      <div class="card overflow-hidden lg:col-span-2">
+        <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-900">Consultas de clientes</h3>
+            <p class="mt-0.5 text-xs text-slate-400">7 pendientes de respuesta</p>
+          </div>
+          <a href="#" class="text-xs font-medium text-brand-600 hover:text-brand-700">Ver todo →</a>
+        </div>
+
+        <ul class="divide-y divide-slate-100">
+          <li class="flex items-start gap-3 px-5 py-4 transition hover:bg-slate-50">
+            <span class="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-indigo-100 text-[11px] font-semibold text-indigo-700">MG</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <p class="truncate text-sm font-medium text-slate-800">María González</p>
+                <span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600">Sin responder</span>
+                <span class="ml-auto shrink-0 text-[11px] text-slate-400">hace 4 min</span>
+              </div>
+              <p class="mt-1 truncate text-sm text-slate-500">¿El iPhone 15 Pro Max incluye garantía internacional?</p>
+              <p class="mt-1 text-[11px] text-slate-400">Pedido #IP-2048</p>
+            </div>
+          </li>
+
+          <li class="flex items-start gap-3 px-5 py-4 transition hover:bg-slate-50">
+            <span class="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-violet-100 text-[11px] font-semibold text-violet-700">CR</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <p class="truncate text-sm font-medium text-slate-800">Carlos Ruiz</p>
+                <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-600">En proceso</span>
+                <span class="ml-auto shrink-0 text-[11px] text-slate-400">hace 22 min</span>
+              </div>
+              <p class="mt-1 truncate text-sm text-slate-500">Necesito cambiar la dirección de entrega del pedido.</p>
+              <p class="mt-1 text-[11px] text-slate-400">Pedido #IP-2047 · Asignado a Jorge R.</p>
+            </div>
+          </li>
+
+          <li class="flex items-start gap-3 px-5 py-4 transition hover:bg-slate-50">
+            <span class="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-emerald-100 text-[11px] font-semibold text-emerald-700">AM</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <p class="truncate text-sm font-medium text-slate-800">Andrés Molina</p>
+                <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">Respondida</span>
+                <span class="ml-auto shrink-0 text-[11px] text-slate-400">hace 2 h</span>
+              </div>
+              <p class="mt-1 truncate text-sm text-slate-500">Solicito factura a nombre de la empresa.</p>
+              <p class="mt-1 text-[11px] text-slate-400">Pedido #IP-2045 · Respondido en 15 min</p>
+            </div>
+          </li>
+        </ul>
+
+        <div class="flex items-center justify-between border-t border-slate-100 px-5 py-3">
+          <p class="text-xs text-slate-400">Mostrando 3 de 7 consultas</p>
+          <a href="#" class="text-xs font-medium text-brand-600 hover:text-brand-700">Bandeja completa →</a>
+        </div>
+      </div>
+
+      <!-- Navegación lateral -->
+      <div class="card p-3">
+        <p class="px-2 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Navegación</p>
+
+        <a href="#" class="group flex items-center gap-3 rounded-xl bg-brand-50 px-3 py-2.5 text-sm font-medium text-brand-700">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+          Dashboard
+        </a>
+
+        <a href="#" class="group mt-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900">
+          <svg class="h-5 w-5 text-slate-400 group-hover:text-slate-600" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          Pedidos
+          <span class="ml-auto rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">34</span>
+        </a>
+
+        <a href="#" class="group mt-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900">
+          <svg class="h-5 w-5 text-slate-400 group-hover:text-slate-600" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8m-8 4h5m4 6H7a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v9l-4 5z"/></svg>
+          Consultas
+          <span class="ml-auto rounded-md bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-600">7</span>
+        </a>
+
+        <div class="my-2 h-px bg-slate-100"></div>
+
+        <p class="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Gestión</p>
+
+        <a href="#" class="group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900">
+          <svg class="h-5 w-5 text-slate-400 group-hover:text-slate-600" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.36-1.86M17 20H7m10 0v-2c0-.66-.13-1.28-.36-1.86M7 20H2v-2a3 3 0 015.36-1.86M7 20v-2c0-.66.13-1.28.36-1.86m0 0a5 5 0 019.28 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          Clientes
+        </a>
+
+        <a href="#" class="group mt-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900">
+          <svg class="h-5 w-5 text-slate-400 group-hover:text-slate-600" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          Configuración
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 07 · TABLA ══════════ -->
+  <section class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">07 · Tablas</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Tabla de datos</h2>
+    </div>
+
+    <div class="card overflow-hidden">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-900">Pedidos recientes</h3>
+          <p class="mt-0.5 text-xs text-slate-400">Últimos movimientos de importación</p>
+        </div>
+        <div class="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+          <button class="rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">Todos</button>
+          <button class="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700">Activos</button>
+          <button class="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700">Cerrados</button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[640px] text-left text-sm">
+          <thead>
+            <tr class="border-b border-slate-100 text-[11px] uppercase tracking-wider text-slate-400">
+              <th class="px-5 py-3 font-semibold">Pedido</th>
+              <th class="px-5 py-3 font-semibold">Cliente</th>
+              <th class="px-5 py-3 font-semibold">Modelo</th>
+              <th class="px-5 py-3 font-semibold">Estado</th>
+              <th class="px-5 py-3 text-right font-semibold">Total</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr class="cursor-pointer bg-brand-50/40 transition hover:bg-brand-50">
+              <td class="px-5 py-3.5"><p class="font-medium text-slate-900">#IP-2048</p><p class="text-[11px] text-slate-400">12 Nov · 10:24</p></td>
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-2.5">
+                  <span class="grid h-7 w-7 place-items-center rounded-full bg-indigo-100 text-[10px] font-semibold text-indigo-700">MG</span>
+                  <span class="text-slate-700">María González</span>
+                </div>
+              </td>
+              <td class="px-5 py-3.5 text-slate-600">iPhone 15 Pro Max · 256GB</td>
+              <td class="px-5 py-3.5">
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
+                  <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span> En tránsito
+                </span>
+              </td>
+              <td class="px-5 py-3.5 text-right font-medium text-slate-900">$1,299</td>
+            </tr>
+            <tr class="cursor-pointer transition hover:bg-slate-50">
+              <td class="px-5 py-3.5"><p class="font-medium text-slate-900">#IP-2047</p><p class="text-[11px] text-slate-400">11 Nov · 16:40</p></td>
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-2.5">
+                  <span class="grid h-7 w-7 place-items-center rounded-full bg-violet-100 text-[10px] font-semibold text-violet-700">CR</span>
+                  <span class="text-slate-700">Carlos Ruiz</span>
+                </div>
+              </td>
+              <td class="px-5 py-3.5 text-slate-600">iPhone 14 · 128GB</td>
+              <td class="px-5 py-3.5">
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700">
+                  <span class="h-1.5 w-1.5 rounded-full bg-violet-500"></span> En aduana
+                </span>
+              </td>
+              <td class="px-5 py-3.5 text-right font-medium text-slate-900">$799</td>
+            </tr>
+            <tr class="cursor-pointer transition hover:bg-slate-50">
+              <td class="px-5 py-3.5"><p class="font-medium text-slate-900">#IP-2046</p><p class="text-[11px] text-slate-400">11 Nov · 09:12</p></td>
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-2.5">
+                  <span class="grid h-7 w-7 place-items-center rounded-full bg-sky-100 text-[10px] font-semibold text-sky-700">LF</span>
+                  <span class="text-slate-700">Lucía Fernández</span>
+                </div>
+              </td>
+              <td class="px-5 py-3.5 text-slate-600">iPhone 15 · 128GB</td>
+              <td class="px-5 py-3.5">
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-700">
+                  <span class="h-1.5 w-1.5 rounded-full bg-sky-500"></span> Pago confirmado
+                </span>
+              </td>
+              <td class="px-5 py-3.5 text-right font-medium text-slate-900">$899</td>
+            </tr>
+            <tr class="cursor-pointer transition hover:bg-slate-50">
+              <td class="px-5 py-3.5"><p class="font-medium text-slate-900">#IP-2045</p><p class="text-[11px] text-slate-400">10 Nov · 14:05</p></td>
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-2.5">
+                  <span class="grid h-7 w-7 place-items-center rounded-full bg-emerald-100 text-[10px] font-semibold text-emerald-700">AM</span>
+                  <span class="text-slate-700">Andrés Molina</span>
+                </div>
+              </td>
+              <td class="px-5 py-3.5 text-slate-600">iPhone 13 · 128GB</td>
+              <td class="px-5 py-3.5">
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Entregado
+                </span>
+              </td>
+              <td class="px-5 py-3.5 text-right font-medium text-slate-900">$649</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex items-center justify-between border-t border-slate-100 px-5 py-3">
+        <p class="text-xs text-slate-400">Mostrando 4 de 34 pedidos</p>
+        <div class="flex items-center gap-1">
+          <button class="grid h-7 w-7 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50">
+            <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+          </button>
+          <button class="grid h-7 w-7 place-items-center rounded-lg bg-brand-600 text-[11px] font-semibold text-white">1</button>
+          <button class="grid h-7 w-7 place-items-center rounded-lg text-[11px] font-medium text-slate-600 hover:bg-slate-100">2</button>
+          <button class="grid h-7 w-7 place-items-center rounded-lg text-[11px] font-medium text-slate-600 hover:bg-slate-100">3</button>
+          <button class="grid h-7 w-7 place-items-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50">
+            <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 08 · LÍNEA DE TIEMPO ══════════ -->
+  <section class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">08 · Procesos</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Línea de tiempo</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+      <!-- Timeline vertical -->
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-900">Línea de tiempo</h3>
+            <p class="mt-0.5 text-xs text-slate-400">Pedido #IP-2048 · María González</p>
+          </div>
+          <span class="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">En tránsito</span>
+        </div>
+
+        <ol class="px-5 py-5">
+          <li class="relative pb-6 pl-8">
+            <span class="absolute left-0 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-emerald-500 text-white ring-4 ring-emerald-50">
+              <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            </span>
+            <span class="absolute left-[9px] top-6 h-full w-0.5 bg-slate-200"></span>
+            <p class="text-sm font-medium text-slate-800">Pedido recibido</p>
+            <p class="mt-0.5 text-xs text-slate-400">09 Nov · 10:24</p>
+          </li>
+
+          <li class="relative pb-6 pl-8">
+            <span class="absolute left-0 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-emerald-500 text-white ring-4 ring-emerald-50">
+              <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            </span>
+            <span class="absolute left-[9px] top-6 h-full w-0.5 bg-slate-200"></span>
+            <p class="text-sm font-medium text-slate-800">Pago confirmado</p>
+            <p class="mt-0.5 text-xs text-slate-400">09 Nov · 11:02</p>
+          </li>
+
+          <li class="relative pb-6 pl-8">
+            <span class="absolute left-0 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-indigo-600 ring-4 ring-indigo-100">
+              <span class="h-2 w-2 animate-pulse rounded-full bg-white"></span>
+            </span>
+            <span class="absolute left-[9px] top-6 h-full w-0.5 bg-slate-200"></span>
+            <div class="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+              <p class="text-sm font-medium text-indigo-900">En tránsito internacional</p>
+              <p class="mt-0.5 text-xs text-indigo-500">11 Nov · 16:40 · Miami → Lima</p>
+              <p class="mt-1.5 text-xs text-indigo-700/80">Guía DHL <span class="font-mono font-medium">#7841-2290-1187</span></p>
+            </div>
+          </li>
+
+          <li class="relative pl-8">
+            <span class="absolute left-0 top-0.5 grid h-5 w-5 place-items-center rounded-full border-2 border-slate-200 bg-white"></span>
+            <p class="text-sm font-medium text-slate-400">En aduana</p>
+            <p class="mt-0.5 text-xs text-slate-400">Estimado · 14 Nov</p>
+          </li>
+        </ol>
+      </div>
+
+      <!-- Timeline horizontal (stepper) -->
+      <div class="card p-5">
+        <p class="mb-6 text-xs font-semibold text-slate-500">Progreso horizontal</p>
+
+        <div class="relative">
+          <!-- línea base -->
+          <div class="absolute left-4 right-4 top-4 h-0.5 bg-slate-200"></div>
+          <!-- línea completada -->
+          <div class="absolute left-4 top-4 h-0.5 w-[52%] bg-gradient-to-r from-emerald-500 to-emerald-400"></div>
+
+          <ol class="relative flex justify-between">
+            <li class="flex w-20 flex-col items-center text-center">
+              <span class="grid h-8 w-8 place-items-center rounded-full bg-emerald-500 text-white ring-4 ring-white">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              </span>
+              <p class="mt-2 text-[11px] font-medium text-slate-700">Pedido</p>
+            </li>
+            <li class="flex w-20 flex-col items-center text-center">
+              <span class="grid h-8 w-8 place-items-center rounded-full bg-emerald-500 text-white ring-4 ring-white">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              </span>
+              <p class="mt-2 text-[11px] font-medium text-slate-700">Pago</p>
+            </li>
+            <li class="flex w-20 flex-col items-center text-center">
+              <span class="grid h-8 w-8 place-items-center rounded-full bg-indigo-600 text-white ring-4 ring-indigo-100">
+                <span class="h-2 w-2 animate-pulse rounded-full bg-white"></span>
+              </span>
+              <p class="mt-2 text-[11px] font-semibold text-indigo-700">Tránsito</p>
+            </li>
+            <li class="flex w-20 flex-col items-center text-center">
+              <span class="grid h-8 w-8 place-items-center rounded-full border-2 border-slate-200 bg-white text-slate-300 ring-4 ring-white">
+                <span class="h-2 w-2 rounded-full bg-slate-300"></span>
+              </span>
+              <p class="mt-2 text-[11px] font-medium text-slate-400">Aduana</p>
+            </li>
+            <li class="flex w-20 flex-col items-center text-center">
+              <span class="grid h-8 w-8 place-items-center rounded-full border-2 border-slate-200 bg-white text-slate-300 ring-4 ring-white">
+                <span class="h-2 w-2 rounded-full bg-slate-300"></span>
+              </span>
+              <p class="mt-2 text-[11px] font-medium text-slate-400">Entrega</p>
+            </li>
+          </ol>
+        </div>
+
+        <div class="mt-8 space-y-2 rounded-xl bg-slate-50 p-4">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Siguiente paso</p>
+          <p class="text-sm text-slate-600">Despacho aduanero estimado para el <span class="font-semibold text-slate-800">14 de noviembre</span>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 09 · PANELES Y ALERTAS ══════════ -->
+  <section id="paneles" class="scroll-mt-24">
+    <div class="mb-5">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">09 · Contenedores</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-900">Paneles, alertas y estados vacíos</h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+      <!-- Paneles -->
+      <div class="space-y-4">
+        <!-- Panel con acción -->
+        <div class="card p-5">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h3 class="text-sm font-semibold text-slate-900">Panel con acción</h3>
+              <p class="mt-1 text-xs leading-relaxed text-slate-500">Contenedor estándar para agrupar contenido relacionado con un encabezado y una acción secundaria.</p>
+            </div>
+            <button class="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50">Editar</button>
+          </div>
+          <div class="mt-4 rounded-xl bg-slate-50 p-3">
+            <p class="text-xs text-slate-500">Área de contenido interno con fondo suave.</p>
+          </div>
+        </div>
+
+        <!-- Panel destacado -->
+        <div class="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 to-white p-5 shadow-card">
+          <div class="flex items-center gap-2">
+            <span class="grid h-8 w-8 place-items-center rounded-lg bg-brand-600 text-white shadow-lg shadow-indigo-600/25">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            </span>
+            <p class="text-sm font-semibold text-brand-900">Panel destacado</p>
+          </div>
+          <p class="mt-3 text-xs leading-relaxed text-brand-900/70">Para llamados a la acción, onboarding o información prioritaria. Usa el degradado de marca con moderación.</p>
+        </div>
+
+        <!-- Alerta con icono -->
+        <div class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+          <div>
+            <p class="text-sm font-medium text-amber-800">3 pedidos próximos a vencer el SLA</p>
+            <p class="mt-0.5 text-xs text-amber-700/80">Revisa la bandeja de consultas antes de las 18:00.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alertas + vacío + skeleton -->
+      <div class="space-y-4">
+        <div class="card p-5">
+          <p class="mb-3 text-xs font-semibold text-slate-500">Alertas</p>
+          <div class="space-y-2.5">
+            <div class="flex items-center gap-2.5 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 px-3 py-2.5">
+              <svg class="h-4 w-4 shrink-0 text-emerald-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <p class="text-xs text-emerald-800">Pago verificado correctamente.</p>
+            </div>
+            <div class="flex items-center gap-2.5 rounded-lg border-l-4 border-sky-500 bg-sky-50 px-3 py-2.5">
+              <svg class="h-4 w-4 shrink-0 text-sky-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <p class="text-xs text-sky-800">Guía DHL actualizada.</p>
+            </div>
+            <div class="flex items-center gap-2.5 rounded-lg border-l-4 border-rose-500 bg-rose-50 px-3 py-2.5">
+              <svg class="h-4 w-4 shrink-0 text-rose-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+              <p class="text-xs text-rose-800">No se pudo validar el IMEI.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-5">
+          <p class="mb-3 text-xs font-semibold text-slate-500">Estado vacío</p>
+          <div class="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-8 text-center">
+            <span class="grid h-11 w-11 place-items-center rounded-full bg-white text-slate-400 shadow-sm">
+              <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 13V7a2 2 0 00-2-2H6a2 2 0 00-2 2v6m16 0v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4m16 0h-5l-2 3H9l-2-3H4"/></svg>
+            </span>
+            <p class="mt-3 text-sm font-medium text-slate-700">Sin resultados</p>
+            <p class="mt-1 max-w-[220px] text-xs text-slate-400">No hay pedidos que coincidan con los filtros aplicados.</p>
+            <button class="mt-4 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-brand-700">Limpiar filtros</button>
+          </div>
+        </div>
+
+        <div class="card p-5">
+          <p class="mb-3 text-xs font-semibold text-slate-500">Carga (skeleton)</p>
+          <div class="space-y-3">
+            <div class="flex items-center gap-3">
+              <div class="skeleton h-9 w-9 rounded-full"></div>
+              <div class="flex-1 space-y-2">
+                <div class="skeleton h-2.5 w-2/5 rounded-full"></div>
+                <div class="skeleton h-2 w-3/5 rounded-full"></div>
+              </div>
+            </div>
+            <div class="skeleton h-2.5 w-full rounded-full"></div>
+            <div class="skeleton h-2.5 w-4/5 rounded-full"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ PIE ══════════ -->
+  <footer class="border-t border-slate-200 pt-6">
+    <div class="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+      <p class="text-xs text-slate-400">iImport UI Kit · Componentes basados en el panel de pedidos.</p>
+      <div class="flex items-center gap-3 text-xs">
+        <a href="#color" class="text-slate-500 hover:text-slate-800">Volver arriba ↑</a>
+        <span class="text-slate-300">·</span>
+        <span class="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-500">Tailwind CDN</span>
+      </div>
+    </div>
+  </footer>
+
+</main>
+
+<script>
+  // Resplandor que sigue al cursor en las tarjetas KPI
+  document.querySelectorAll('.kpi-card').forEach(card => {
+    card.addEventListener('pointermove', (e) => {
+      const r = card.getBoundingClientRect();
+      card.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      card.style.setProperty('--my', `${e.clientY - r.top}px`);
+    });
+  });
+</script>
+
+</body>
+</html>

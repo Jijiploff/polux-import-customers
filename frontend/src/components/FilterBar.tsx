@@ -30,10 +30,9 @@ export function FilterBar({
     onChange({ ...filters, [key]: val });
   }
   return (
-    <div style={{
+    <div className="dashboard-filter" style={{
       display: "flex", flexWrap: "wrap", gap: "0.75rem",
-      background: "white", padding: "0.75rem", borderRadius: 8,
-      marginBottom: "1rem", alignItems: "flex-end",
+      padding: "0.75rem", alignItems: "flex-end",
     }}>
       <label style={{ fontSize: "0.8rem" }}>
         Desde<br />

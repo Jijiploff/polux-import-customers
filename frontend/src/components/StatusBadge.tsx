@@ -37,10 +37,7 @@ const PALETTE: Record<string, { bg: string; fg: string }> = {
 export function StatusBadge({ value }: { value: string }) {
   const p = PALETTE[value] ?? { bg: "#e5e7eb", fg: "#111827" };
   return (
-    <span style={{
-      display: "inline-block", padding: "2px 8px", borderRadius: "999px",
-      fontSize: "0.75rem", fontWeight: 600, background: p.bg, color: p.fg,
-    }}>
+    <span className="status-badge" style={{ background: p.bg, color: p.fg }}>
       {value.replace(/_/g, " ")}
     </span>
   );
