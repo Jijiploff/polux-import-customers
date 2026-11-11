@@ -283,19 +283,33 @@ Con el bot corriendo (polling en una terminal), ejecuta las siguientes pruebas.
    ```
    👋 Bienvenido a Polux Import.
 
-   Para consultar el estado de tu pedido, envíame tu código
-   (por ejemplo: PD-2025-0001).
+   Para consultar el estado de tu pedido, envíame tu código junto con tu DNI
+   (por ejemplo: PD-2025-0001 70000001).
 
    Si necesitas hablar con un asesor, escribe tu consulta y te derivaré.
    ```
-3. Envía el código de un pedido existente:
+3. Envía sólo el código de un pedido existente:
    ```
    PD-2025-0001
    ```
-4. El bot responde:
+4. El bot pide el DNI (no vincula todavía):
+   ```
+   Para vincular tu pedido necesito validar tu identidad.
+   Envíame el código del pedido junto con tu DNI en un solo mensaje.
+   Ejemplo: PD-2025-0001 70000001
+   ```
+5. Envía código + DNI del titular del pedido:
+   ```
+   PD-2025-0001 70000001
+   ```
+6. El bot responde:
    ```
    ✅ Vinculado al pedido PD-2025-0001. Ya puedes consultar su estado.
    ```
+
+> **Seguridad**: si el DNI no coincide con el `documento` del cliente, el bot
+> responde con un mensaje genérico y no vincula. Si el pedido ya está vinculado
+> a otro chat, tampoco permite reemplazarlo.
 
 ### Test 2 — Consulta de estado
 
@@ -408,7 +422,13 @@ docker compose exec -T db /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P
 
 - El cliente aún no envió un código de pedido válido.
 - Verifica que el código exista: `SELECT codigo FROM pedido;`
-- Enviar `PD-2025-0001` exactamente (mayúsculas).
+- Enviar el código junto con el DNI del titular: `PD-2025-0001 70000001`.
+
+### El bot responde "No pudimos validar el código y el DNI"
+
+- El `documento` del cliente en la BD no coincide con el DNI enviado.
+- Revisar: `SELECT codigo, c.documento FROM pedido p JOIN cliente c ON c.id = p.cliente_id;`
+- Si el cliente no tiene `documento`, un operador debe completarlo antes de vincular.
 
 ### El operador no recibe notificaciones
 
@@ -416,7 +436,7 @@ docker compose exec -T db /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P
 |---|---|
 | `TELEGRAM_OPERATOR_CHAT_ID` vacío | Enviar `/whoami` al bot, copiar el número |
 | Chat ID mal copiado (con espacios) | Limpiar el valor en `.env` |
-| Backend no reiniciado tras cambiar `.env` | `docker compose restart backend` |
+| Backend no reiniciado tras cambiar `.env` | `docker compose up -d --force-recreate backend` |
 | El bot del operador no inició conversación | El operador debe enviar `/start` al bot primero |
 
 ### Error: `telegram_disabled`

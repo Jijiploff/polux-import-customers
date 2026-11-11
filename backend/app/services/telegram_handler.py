@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import hmac
+import re
 from datetime import datetime
 from typing import Any
 
@@ -31,9 +33,25 @@ logger = get_logger("telegram_handler")
 
 _WELCOME = (
     "👋 Bienvenido a Polux Import.\n\n"
-    "Para consultar el estado de tu pedido, envíame tu código "
-    "(por ejemplo: PD-2025-0001).\n\n"
+    "Para consultar el estado de tu pedido, envíame tu código junto con tu DNI "
+    "(por ejemplo: PD-2025-0001 70000001).\n\n"
     "Si necesitas hablar con un asesor, escribe tu consulta y te derivaré."
+)
+
+_LINK_DNI_REQUIRED = (
+    "Para vincular tu pedido necesito validar tu identidad.\n"
+    "Envíame el código del pedido junto con tu DNI en un solo mensaje.\n"
+    "Ejemplo: PD-2025-0001 70000001"
+)
+
+_LINK_INVALID = (
+    "No pudimos validar el código y el DNI. Revisa los datos e inténtalo de nuevo.\n"
+    "Si el problema continúa, escribe tu consulta y te derivaré con un asesor."
+)
+
+_LINK_ALREADY_LINKED = (
+    "Ese pedido ya está vinculado a otra cuenta de Telegram.\n"
+    "Por seguridad no puedo cambiarlo. Escribe tu consulta y te derivaré con un asesor."
 )
 
 
@@ -81,6 +99,41 @@ def _resolve_pedido_activo(db: Session, cliente: Cliente) -> Pedido | None:
 
 def _find_pedido_by_codigo(db: Session, codigo: str) -> Pedido | None:
     return db.scalar(select(Pedido).where(Pedido.codigo == codigo.strip().upper()))
+
+
+# ---------- Verificación de identidad (código + DNI) ----------
+def _norm_documento(value: str | None) -> str:
+    """Normaliza el documento: sin espacios/guiones y en mayúsculas."""
+    return re.sub(r"[^A-Za-z0-9]", "", value or "").upper()
+
+
+def _documento_matches(cliente: Cliente, documento: str | None) -> bool:
+    esperado = _norm_documento(cliente.documento)
+    recibido = _norm_documento(documento)
+    if not esperado or not recibido:
+        return False
+    return hmac.compare_digest(esperado, recibido)
+
+
+def _parse_pedido_link(text: str) -> tuple[str | None, str | None]:
+    """Extrae (código, documento) de mensajes tipo:
+
+    - ``PD-2025-0001 70000001``
+    - ``PD-2025-0001 DNI 70000001``
+    """
+    parts = [p for p in re.split(r"[\s,;]+", text.strip()) if p]
+    if not parts or not parts[0].upper().startswith("PD-"):
+        return None, None
+
+    codigo = parts[0].upper()
+    resto = parts[1:]
+    if resto and resto[0].upper() in {"DNI", "DOC", "DOCUMENTO", "CEDULA", "CÉDULA"}:
+        resto = resto[1:]
+
+    documento = "".join(resto) if resto else None
+    if documento and not re.fullmatch(r"[A-Za-z0-9]{4,20}", documento):
+        documento = None
+    return codigo, documento
 
 
 # ---------- Persistencia de comandos (trazabilidad) ----------
@@ -133,6 +186,24 @@ def _log_saliente_comando(
     db.commit()
     db.refresh(com)
     return com
+
+
+def _reply(
+    db: Session,
+    tg: TelegramService,
+    chat_id: int,
+    contenido: str,
+    cliente: Cliente | None = None,
+    pedido: Pedido | None = None,
+):
+    """Envía una respuesta y la registra en `comunicacion`."""
+    envio = tg.send_message(chat_id, contenido)
+    _log_saliente_comando(
+        db, chat_id, contenido, cliente, pedido,
+        "SENT" if envio.ok else ("FAILED_RETRY" if envio.retriable else "FAILED"),
+        envio.error,
+    )
+    return envio
 
 
 # ---------- Notificación al operador ----------
@@ -207,43 +278,46 @@ def handle_telegram_update(
         )
         return {"handled": "whoami", "chat_id": chat_id, "sent": envio.ok}
 
-    # ---------- Vinculación por código de pedido ----------
+    # ---------- Vinculación por código de pedido + DNI ----------
     if cliente:
         pedido = _resolve_pedido_activo(db, cliente)
     else:
-        candidate = text.strip().upper()
-        if candidate.startswith("PD-"):
-            p = _find_pedido_by_codigo(db, candidate)
-            if p:
-                p.cliente.telegram_chat_id = str(chat_id)
-                db.commit()
-                cliente = p.cliente
-                pedido = p
-                _log_comando(db, chat_id, text, cliente, pedido, external_id)
-                envio = tg.send_message(
-                    chat_id,
-                    f"✅ Vinculado al pedido {p.codigo}. Ya puedes consultar su estado.",
-                )
-                _log_saliente_comando(
-                    db, chat_id, f"✅ Vinculado al pedido {p.codigo}.",
-                    cliente, pedido,
-                    "SENT" if envio.ok else ("FAILED_RETRY" if envio.retriable else "FAILED"),
-                    envio.error,
-                )
-                return {"handled": "vinculado", "chat_id": chat_id, "pedido_id": p.id}
+        codigo, documento = _parse_pedido_link(text)
+        if codigo:
+            _log_comando(db, chat_id, text, None, None, external_id)
+
+            if documento is None:
+                _reply(db, tg, chat_id, _LINK_DNI_REQUIRED)
+                return {"handled": "dni_required", "chat_id": chat_id}
+
+            p = _find_pedido_by_codigo(db, codigo)
+            if p is None or not _documento_matches(p.cliente, documento):
+                # Mensaje genérico: no revelamos si el pedido existe o no.
+                _reply(db, tg, chat_id, _LINK_INVALID)
+                return {"handled": "link_rejected", "chat_id": chat_id}
+
+            actual = p.cliente.telegram_chat_id
+            if actual and actual != str(chat_id):
+                _reply(db, tg, chat_id, _LINK_ALREADY_LINKED)
+                return {"handled": "already_linked", "chat_id": chat_id}
+
+            p.cliente.telegram_chat_id = str(chat_id)
+            db.commit()
+            cliente = p.cliente
+            pedido = p
+
+            msg = f"✅ Vinculado al pedido {p.codigo}. Ya puedes consultar su estado."
+            _reply(db, tg, chat_id, msg, cliente, pedido)
+            return {"handled": "vinculado", "chat_id": chat_id, "pedido_id": p.id}
 
     if not cliente:
         msg = (
             "No encontré un pedido asociado a tu cuenta de Telegram.\n"
-            "Envíame tu código de pedido (ej: PD-2025-0001) para vincularlo."
+            "Envíame tu código de pedido junto con tu DNI para vincularlo.\n"
+            "Ejemplo: PD-2025-0001 70000001"
         )
         _log_comando(db, chat_id, text, None, None, external_id)
-        envio = tg.send_message(chat_id, msg)
-        _log_saliente_comando(
-            db, chat_id, msg, None, None,
-            "SENT" if envio.ok else ("FAILED_RETRY" if envio.retriable else "FAILED"),
-            envio.error,
-        )
+        _reply(db, tg, chat_id, msg)
         return {"handled": "no_cliente", "chat_id": chat_id}
 
     # ---------- Procesar con el agente (reutiliza toda la lógica) ----------
