@@ -284,7 +284,9 @@ def handle_telegram_update(
     else:
         codigo, documento = _parse_pedido_link(text)
         if codigo:
-            _log_comando(db, chat_id, text, None, None, external_id)
+            # No persistimos el DNI en el historial de mensajes (dato personal).
+            contenido_log = f"{codigo} [DNI]" if documento else text
+            _log_comando(db, chat_id, contenido_log, None, None, external_id)
 
             if documento is None:
                 _reply(db, tg, chat_id, _LINK_DNI_REQUIRED)

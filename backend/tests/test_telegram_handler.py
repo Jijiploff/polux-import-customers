@@ -11,6 +11,7 @@ from app.models import (
     Canal,
     Cliente,
     Comunicacion,
+    DireccionComunicacion,
     EstadoIngreso,
     EstadoItem,
     EstadoPedido,
@@ -154,15 +155,21 @@ def test_codigo_inexistente_mensaje_generico(escenario):
 def test_dni_correcto_vincula(escenario):
     db, pedido, cliente = escenario
     tg = FakeTelegram()
+    update = _update(1004, f"{pedido.codigo} 70000001")
 
-    result = handle_telegram_update(
-        db, _update(1004, f"{pedido.codigo} 70000001"), telegram=tg,
-    )
+    result = handle_telegram_update(db, update, telegram=tg)
 
     assert result["handled"] == "vinculado"
     db.refresh(cliente)
     assert cliente.telegram_chat_id == "1004"
     assert "Vinculado" in tg.sent[-1][1]
+
+    contenido = db.scalar(select(Comunicacion.contenido).where(
+        Comunicacion.whatsapp_message_id == f"tg:{update['update_id']}",
+        Comunicacion.direccion == DireccionComunicacion.ENTRANTE,
+    ))
+    assert contenido is not None
+    assert "70000001" not in contenido
 
 
 def test_acepta_prefijo_dni(escenario):
