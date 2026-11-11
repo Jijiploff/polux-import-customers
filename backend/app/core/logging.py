@@ -17,6 +17,10 @@ def configure_logging() -> None:
     )
     root.addHandler(handler)
     root.setLevel(settings.LOG_LEVEL.upper())
+    # httpx registra la URL completa en INFO; en la Bot API eso incluye el
+    # token del bot. Silenciamos sus logs para no filtrar credenciales.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:

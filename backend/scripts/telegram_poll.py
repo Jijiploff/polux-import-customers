@@ -30,7 +30,7 @@ def main() -> int:
         tg.delete_webhook()
         logger.info("webhook_removed_for_polling")
     except Exception as exc:
-        logger.warning("delete_webhook_failed err=%s", exc)
+        logger.warning("delete_webhook_failed err=%s", tg.redact(str(exc)))
 
     last_update_id: int | None = None
     stop = {"flag": False}
@@ -47,7 +47,7 @@ def main() -> int:
         try:
             updates = tg.get_updates(offset=last_update_id, timeout=30)
         except Exception as exc:
-            logger.exception("get_updates_error err=%s", exc)
+            logger.exception("get_updates_error err=%s", tg.redact(str(exc)))
             time.sleep(2)
             continue
 

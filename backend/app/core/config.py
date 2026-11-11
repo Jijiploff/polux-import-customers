@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     AGENT_CONTEXT_MESSAGES: int = 5
     AGENT_MAX_RESPONSE_SECONDS: int = 12
 
-        # ---- Telegram ----
+    # ---- Telegram ----
     TELEGRAM_ENABLED: bool = False
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_WEBHOOK_SECRET: str = ""

@@ -33,6 +33,12 @@ class TelegramService:
     def _ready(self) -> bool:
         return bool(self.enabled and self.token and self.base_url)
 
+    def redact(self, text: str) -> str:
+        """Elimina el token del texto antes de loguearlo."""
+        if self.token:
+            return text.replace(self.token, "<token>")
+        return text
+
     # ---------- Envío ----------
     def send_message(
         self,
@@ -59,8 +65,9 @@ class TelegramService:
             with httpx.Client(timeout=self.timeout) as client:
                 r = client.post(f"{self.base_url}/sendMessage", json=payload)
         except httpx.HTTPError as exc:
-            logger.exception("telegram_send_http_error err=%s", exc)
-            return TelegramSendResult(ok=False, message_id=None, error=str(exc), retriable=True)
+            err = self.redact(str(exc))
+            logger.exception("telegram_send_http_error err=%s", err)
+            return TelegramSendResult(ok=False, message_id=None, error=err, retriable=True)
 
         if r.status_code == 200:
             data = r.json()

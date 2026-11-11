@@ -28,6 +28,7 @@ def _drop_canal_checks(table: str) -> None:
     """Elimina cualquier CHECK constraint que mencione la columna 'canal'."""
     op.execute(f"""
     DECLARE @name NVARCHAR(255);
+    DECLARE @sql NVARCHAR(MAX);
     DECLARE cur CURSOR LOCAL FAST_FORWARD FOR
         SELECT name FROM sys.check_constraints
         WHERE parent_object_id = OBJECT_ID(N'{table}')
@@ -36,7 +37,8 @@ def _drop_canal_checks(table: str) -> None:
     FETCH NEXT FROM cur INTO @name;
     WHILE @@FETCH_STATUS = 0
     BEGIN
-        EXEC sp_executesql N'ALTER TABLE {table} DROP CONSTRAINT ' + QUOTENAME(@name);
+        SET @sql = N'ALTER TABLE {table} DROP CONSTRAINT ' + QUOTENAME(@name);
+        EXEC sp_executesql @sql;
         FETCH NEXT FROM cur INTO @name;
     END
     CLOSE cur;
