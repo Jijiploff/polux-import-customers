@@ -4,7 +4,7 @@ Guía paso a paso para activar el canal de Telegram en el sistema de
 seguimiento al cliente, con derivación a empleados.
 
 > **Estado previo requerido**: sistema levantado con Fases 0-8 completas
-> (ver `LEVANTAMIENTO.md`). Migraciones aplicadas hasta `0007_telegram_channel`.
+> (ver `LEVANTAMIENTO.md`). Migraciones aplicadas hasta `0008_usuario_telegram`.
 
 ---
 
@@ -36,7 +36,7 @@ curl http://localhost:8000/api/v1/health
 :: BD accesible
 curl http://localhost:8000/api/v1/health/db
 
-:: Migraciones al día (debe mostrar 0007_telegram_channel como head)
+:: Migraciones al día (debe mostrar 0008_usuario_telegram como head)
 docker compose exec -T backend alembic current
 ```
 
@@ -103,7 +103,7 @@ Cambia:
 
 Deja:
 - `TELEGRAM_ENABLED=false` **por ahora** (se activa en el paso 4).
-- `TELEGRAM_OPERATOR_CHAT_ID=` **vacío** (se llena en el paso 6).
+- `TELEGRAM_OPERATOR_CHAT_ID=` **vacío**: los operadores se vinculan con `/vincular` (paso 6).
 
 Guarda con **Ctrl + S** y cierra.
 
@@ -129,7 +129,7 @@ Debes ver en el log algo como:
 INFO:     Application startup complete.
 ```
 
-**Ahora aplica la migración** `0007_telegram_channel`:
+**Ahora aplica las migraciones** `0007_telegram_channel` y `0008_usuario_telegram`:
 
 ```cmd
 :: 4. Confirmar dónde estás
@@ -235,37 +235,40 @@ Debe mostrar `"url":"https://a1b2c3.ngrok-free.app/api/v1/webhooks/telegram"`.
 
 ---
 
-## 6. Vincular el operador (notificaciones)
+## 6. Vincular operadores (notificaciones)
 
-Esta sección configura **qué cuenta de Telegram recibe las notificaciones de casos**.
+Pueden ser **varios operadores**. Cada uno vincula su propio chat con sus
+credenciales de Polux Import; no se comparte una contraseña.
 
-1. En Telegram, abre tu bot (el que creaste en el paso 2).
-2. Envía el comando:
+1. El operador abre el bot y envía:
    ```
-   /whoami
+   /vincular operador@poluximport.pe SuContraseña
    ```
-3. El bot responderá algo así:
+2. El bot valida:
+   - email y contraseña contra `usuario.password_hash` (bcrypt),
+   - que el usuario esté `activo`,
+   - que tenga rol `ADMIN`, `OPERADOR` o `GERENTE`.
+3. Si todo es correcto, responde:
    ```
-   Tu chat_id de Telegram es: 123456789
-
-   Envíalo al administrador para recibir notificaciones de casos.
+   ✅ Vinculado como operador: Nombre Apellido. Recibirás las notificaciones de casos.
    ```
-4. Copia ese `chat_id` (solo los números).
-5. Edita `.env`:
-   ```env
-   TELEGRAM_OPERATOR_CHAT_ID=123456789
+4. Repite el paso 1 con cada operador. **Todos** los operadores vinculados y
+   activos reciben las notificaciones de casos.
+5. Para dejar de recibirlas, el operador envía:
    ```
-6. Reinicia el backend:
-   ```cmd
-   docker compose restart backend
+   /desvincular
    ```
 
-> ✅ **Esto vincula al operador humano**. Cuando un cliente escale (reclamo,
-> daño, entrega parcial, retraso crítico), el operador recibirá un mensaje en
-> su Telegram con los datos del caso.
-
-> 🔒 Si quieres configurar más de un operador, puedes extender el campo a
-> lista separada por comas en el futuro. Por ahora, uno solo.
+> 🔒 La contraseña **no se guarda** en la base de datos ni en el historial de
+> `comunicacion`; sólo se usa para verificar el hash. Aun así, se recomienda
+> borrar el mensaje de Telegram después de vincular.
+>
+> 🔒 Tras 5 intentos fallidos desde un mismo chat, el bot bloquea nuevos
+> intentos durante 15 minutos.
+>
+> ⚙️ `TELEGRAM_OPERATOR_CHAT_ID` queda como **destinatario de respaldo**
+> opcional (por ejemplo, el chat del administrador). Los operadores vinculados
+> por `/vincular` reciben las notificaciones sin tocar `.env`.
 
 ---
 
@@ -434,8 +437,10 @@ docker compose exec -T db /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P
 
 | Causa | Solución |
 |---|---|
-| `TELEGRAM_OPERATOR_CHAT_ID` vacío | Enviar `/whoami` al bot, copiar el número |
-| Chat ID mal copiado (con espacios) | Limpiar el valor en `.env` |
+| Ningún operador vinculado | Cada operador debe enviar `/vincular email contraseña` |
+| Usuario sin rol `OPERADOR`/`ADMIN`/`GERENTE` | Asignar el rol en el panel web |
+| Usuario inactivo | Activarlo antes de vincular |
+| `TELEGRAM_OPERATOR_CHAT_ID` (fallback) mal copiado | Limpiar el valor en `.env` |
 | Backend no reiniciado tras cambiar `.env` | `docker compose up -d --force-recreate backend` |
 | El bot del operador no inició conversación | El operador debe enviar `/start` al bot primero |
 
@@ -537,7 +542,7 @@ Pasos para replicar el setup, estos son los **5 pasos mínimos**:
 ::    TELEGRAM_ENABLED=true
 ::    TELEGRAM_BOT_TOKEN=<token>
 ::    TELEGRAM_WEBHOOK_SECRET=<secreto>
-docker compose restart backend
+docker compose up -d --force-recreate backend
 
 :: 3. Aplicar migración
 docker compose exec -T backend alembic upgrade head
@@ -545,9 +550,9 @@ docker compose exec -T backend alembic upgrade head
 :: 4. Iniciar polling (dejar corriendo)
 docker compose exec backend python -m scripts.telegram_poll
 
-:: 5. En Telegram → /whoami al bot → copiar chat_id
-::    Editar .env: TELEGRAM_OPERATOR_CHAT_ID=<chat_id>
-docker compose restart backend
+:: 5. En Telegram, cada operador envía:
+::    /vincular <email> <contraseña>
+::    (todos los operadores vinculados reciben las notificaciones)
 ```
 
 Después de eso, enviar `/start` al bot desde cualquier cuenta de Telegram y

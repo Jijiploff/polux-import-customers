@@ -45,8 +45,8 @@ from app.services.notification_service import NotificationService
 logger = get_logger("rule_engine")
 
 
-def _notify_operator(caso: CasoEscalamiento, pedido: Pedido) -> None:
-    """Notifica al operador por Telegram sobre un caso recién creado.
+def _notify_operator(caso: CasoEscalamiento, pedido: Pedido, db) -> None:
+    """Notifica a los operadores vinculados por Telegram sobre un caso.
 
     Import local para romper el ciclo:
         rule_engine ← agent_service ← telegram_handler ← rule_engine
@@ -57,7 +57,7 @@ def _notify_operator(caso: CasoEscalamiento, pedido: Pedido) -> None:
     try:
         from app.services.telegram_handler import notify_operator_new_caso
 
-        notify_operator_new_caso(caso, pedido)
+        notify_operator_new_caso(caso, pedido, db=db)
     except Exception:
         logger.exception(
             "notify_operator_failed caso_id=%s pedido_id=%s",
@@ -146,7 +146,7 @@ class RuleEngine:
         self.db.add(caso)
         self.db.commit()
         self.db.refresh(caso)
-        _notify_operator(caso, pedido)
+        _notify_operator(caso, pedido, self.db)
         return caso
 
     # --------- helpers ---------
@@ -398,7 +398,7 @@ class RuleEngine:
             )
             self.db.add(caso)
             self.db.flush()
-            _notify_operator(caso, pedido)
+            _notify_operator(caso, pedido, self.db)
             self._inc("retraso_critico")
 
     def _rule_imprevisto(self) -> None:
@@ -448,7 +448,7 @@ class RuleEngine:
             )
             self.db.add(caso)
             self.db.flush()
-            _notify_operator(caso, pedido)
+            _notify_operator(caso, pedido, self.db)
             self._inc("imprevisto")
 
     def _rule_silencio_cliente(self) -> None:
@@ -526,7 +526,7 @@ class RuleEngine:
                     )
                     self.db.add(caso)
                     self.db.flush()
-                    _notify_operator(caso, pedido)
+                    _notify_operator(caso, pedido, self.db)
                     self._inc("caso_falta_respuesta")
 
     def _rule_reclamo_tono_negativo(self) -> None:
@@ -574,7 +574,7 @@ class RuleEngine:
 
             pedido = self.db.get(Pedido, c.pedido_id)
             if pedido is not None:
-                _notify_operator(caso, pedido)
+                _notify_operator(caso, pedido, self.db)
             self._inc("reclamo_escalado")
 
     def _rule_entrega_lista(self) -> None:

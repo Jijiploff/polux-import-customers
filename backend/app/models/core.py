@@ -64,6 +64,7 @@ class Usuario(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(Unicode(255), nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     ultimo_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    telegram_chat_id: Mapped[str | None] = mapped_column(Unicode(40), nullable=True)
 
     roles = relationship("UsuarioRol", back_populates="usuario", cascade="all, delete-orphan")
 

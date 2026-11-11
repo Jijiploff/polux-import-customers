@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import hmac
 import re
+import threading
+import time
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.core.security import verify_password
 from app.models import (
     AutorComunicacion,
     Canal,
@@ -24,6 +27,10 @@ from app.models import (
     Comunicacion,
     DireccionComunicacion,
     Pedido,
+    Rol,
+    RolCodigo,
+    Usuario,
+    UsuarioRol,
 )
 from app.schemas.agent import IncomingMessage
 from app.services.agent_service import AgentService
@@ -35,7 +42,8 @@ _WELCOME = (
     "👋 Bienvenido a Polux Import.\n\n"
     "Para consultar el estado de tu pedido, envíame tu código junto con tu DNI "
     "(por ejemplo: PD-2025-0001 70000001).\n\n"
-    "Si necesitas hablar con un asesor, escribe tu consulta y te derivaré."
+    "Si necesitas hablar con un asesor, escribe tu consulta y te derivaré.\n\n"
+    "Si eres operador, vincula tu cuenta con /vincular <email> <contraseña>."
 )
 
 _LINK_DNI_REQUIRED = (
@@ -53,6 +61,40 @@ _LINK_ALREADY_LINKED = (
     "Ese pedido ya está vinculado a otra cuenta de Telegram.\n"
     "Por seguridad no puedo cambiarlo. Escribe tu consulta y te derivaré con un asesor."
 )
+
+_OPERATOR_LINK_HELP = (
+    "Para vincular tu cuenta de operador envía:\n"
+    "/vincular <email> <contraseña>\n"
+    "Ejemplo: /vincular operador@poluximport.pe MiClaveSegura\n\n"
+    "Puedes quitar la vinculación de este chat con /desvincular."
+)
+
+_OPERATOR_LINK_INVALID = (
+    "No pudimos validar las credenciales, el usuario está inactivo o no tiene "
+    "permisos de operador."
+)
+
+_OPERATOR_ALREADY_LINKED = (
+    "Tu usuario ya está vinculado a otro chat de Telegram. Usa /desvincular "
+    "desde ese chat o pide a un administrador que lo restablezca."
+)
+
+_OPERATOR_CHAT_TAKEN = (
+    "Este chat ya está vinculado a otro usuario. Usa /desvincular primero."
+)
+
+_OPERATOR_TOO_MANY = (
+    "Demasiados intentos fallidos. Espera unos minutos antes de volver a intentarlo."
+)
+
+# Roles que pueden recibir notificaciones de casos.
+_OPERATOR_ROLES = {RolCodigo.ADMIN, RolCodigo.OPERADOR, RolCodigo.GERENTE}
+
+# Límite básico de intentos por chat (en memoria, por proceso).
+_MAX_FAILED_ATTEMPTS = 5
+_FAILED_WINDOW_SECONDS = 15 * 60
+_failed_attempts: dict[int, list[float]] = {}
+_failed_lock = threading.Lock()
 
 
 # ---------- Extractores ----------
@@ -136,6 +178,138 @@ def _parse_pedido_link(text: str) -> tuple[str | None, str | None]:
     return codigo, documento
 
 
+# ---------- Operadores (vinculación por credenciales) ----------
+def _command_args(text: str, command: str) -> str | None:
+    """Devuelve los argumentos de un comando, o None si no coincide.
+
+    Soporta el sufijo @NombreDelBot que Telegram agrega en grupos.
+    """
+    partes = text.strip().split(maxsplit=1)
+    if not partes:
+        return None
+    if partes[0].split("@", 1)[0].lower() != command:
+        return None
+    return partes[1].strip() if len(partes) > 1 else ""
+
+
+def _too_many_failures(chat_id: int) -> bool:
+    now = time.monotonic()
+    with _failed_lock:
+        recientes = [
+            t for t in _failed_attempts.get(chat_id, [])
+            if now - t < _FAILED_WINDOW_SECONDS
+        ]
+        if recientes:
+            _failed_attempts[chat_id] = recientes
+        else:
+            _failed_attempts.pop(chat_id, None)
+        return len(recientes) >= _MAX_FAILED_ATTEMPTS
+
+
+def _register_failure(chat_id: int) -> None:
+    with _failed_lock:
+        _failed_attempts.setdefault(chat_id, []).append(time.monotonic())
+
+
+def _clear_failures(chat_id: int) -> None:
+    with _failed_lock:
+        _failed_attempts.pop(chat_id, None)
+
+
+def _find_usuario_by_email(db: Session, email: str) -> Usuario | None:
+    return db.scalar(
+        select(Usuario).where(func.lower(Usuario.email) == email.strip().lower())
+    )
+
+
+def _usuario_roles(db: Session, usuario_id: int) -> set[RolCodigo]:
+    return set(
+        db.scalars(
+            select(Rol.codigo)
+            .join(UsuarioRol, UsuarioRol.rol_id == Rol.id)
+            .where(UsuarioRol.usuario_id == usuario_id)
+        ).all()
+    )
+
+
+def _link_operator(
+    db: Session,
+    tg: TelegramService,
+    chat_id: int,
+    args: str,
+    external_id: str | None,
+) -> dict[str, Any]:
+    partes = args.split(maxsplit=1)
+    if len(partes) < 2:
+        _log_comando(db, chat_id, "/vincular [credenciales]", None, None, external_id)
+        _reply(db, tg, chat_id, _OPERATOR_LINK_HELP)
+        return {"handled": "operator_help", "chat_id": chat_id}
+
+    email, password = partes[0], partes[1]
+    # Nunca persistimos ni logueamos la contraseña.
+    _log_comando(
+        db, chat_id, f"/vincular {email} [contraseña]", None, None, external_id,
+    )
+
+    if _too_many_failures(chat_id):
+        _reply(db, tg, chat_id, _OPERATOR_TOO_MANY)
+        return {"handled": "operator_rate_limited", "chat_id": chat_id}
+
+    usuario = _find_usuario_by_email(db, email)
+    roles = _usuario_roles(db, usuario.id) if usuario else set()
+    valido = bool(
+        usuario
+        and usuario.activo
+        and roles & _OPERATOR_ROLES
+        and verify_password(password, usuario.password_hash)
+    )
+    if not valido:
+        _register_failure(chat_id)
+        _reply(db, tg, chat_id, _OPERATOR_LINK_INVALID)
+        return {"handled": "operator_link_rejected", "chat_id": chat_id}
+
+    ocupado = db.scalar(
+        select(Usuario.id).where(
+            Usuario.telegram_chat_id == str(chat_id),
+            Usuario.id != usuario.id,
+        )
+    )
+    if ocupado:
+        _reply(db, tg, chat_id, _OPERATOR_CHAT_TAKEN)
+        return {"handled": "operator_chat_taken", "chat_id": chat_id}
+
+    if usuario.telegram_chat_id and usuario.telegram_chat_id != str(chat_id):
+        _reply(db, tg, chat_id, _OPERATOR_ALREADY_LINKED)
+        return {"handled": "operator_already_linked", "chat_id": chat_id}
+
+    usuario.telegram_chat_id = str(chat_id)
+    db.commit()
+    _clear_failures(chat_id)
+    _reply(
+        db, tg, chat_id,
+        f"✅ Vinculado como operador: {usuario.nombre_completo}. "
+        "Recibirás las notificaciones de casos.",
+    )
+    return {"handled": "operator_linked", "chat_id": chat_id, "usuario_id": usuario.id}
+
+
+def _unlink_operator(
+    db: Session, tg: TelegramService, chat_id: int, external_id: str | None,
+) -> dict[str, Any]:
+    _log_comando(db, chat_id, "/desvincular", None, None, external_id)
+    usuario = db.scalar(
+        select(Usuario).where(Usuario.telegram_chat_id == str(chat_id))
+    )
+    if usuario is None:
+        _reply(db, tg, chat_id, "Este chat no está vinculado a ningún operador.")
+        return {"handled": "operator_unlink_noop", "chat_id": chat_id}
+
+    usuario.telegram_chat_id = None
+    db.commit()
+    _reply(db, tg, chat_id, "✅ Tu chat fue desvinculado. Ya no recibirás notificaciones.")
+    return {"handled": "operator_unlinked", "chat_id": chat_id, "usuario_id": usuario.id}
+
+
 # ---------- Persistencia de comandos (trazabilidad) ----------
 def _log_comando(
     db: Session,
@@ -207,13 +381,46 @@ def _reply(
 
 
 # ---------- Notificación al operador ----------
+def _operator_recipients(db: Session | None, fallback: str | None) -> list[str]:
+    """Chats de operadores activos vinculados + fallback de .env."""
+    destinatarios: list[str] = []
+    if db is not None:
+        chats = db.scalars(
+            select(Usuario.telegram_chat_id)
+            .join(UsuarioRol, UsuarioRol.usuario_id == Usuario.id)
+            .join(Rol, Rol.id == UsuarioRol.rol_id)
+            .where(
+                Usuario.activo == True,  # noqa: E712
+                Usuario.telegram_chat_id.is_not(None),
+                Rol.codigo.in_(list(_OPERATOR_ROLES)),
+            )
+        ).all()
+        destinatarios.extend(c for c in chats if c)
+    if fallback:
+        destinatarios.append(str(fallback))
+    return list(dict.fromkeys(destinatarios))
+
+
 def notify_operator_new_caso(
-    caso: CasoEscalamiento, pedido: Pedido, telegram: TelegramService | None = None
+    caso: CasoEscalamiento,
+    pedido: Pedido,
+    telegram: TelegramService | None = None,
+    db: Session | None = None,
 ) -> None:
     tg = telegram or TelegramService()
-    if not tg.enabled or not tg.operator_chat_id:
-        logger.info("operator_notification_skipped caso_id=%s (no chat_id)", caso.id)
+    if not tg.enabled:
+        logger.info(
+            "operator_notification_skipped caso_id=%s (telegram_disabled)", caso.id,
+        )
         return
+
+    destinatarios = _operator_recipients(db, tg.operator_chat_id)
+    if not destinatarios:
+        logger.info(
+            "operator_notification_skipped caso_id=%s (sin destinatarios)", caso.id,
+        )
+        return
+
     text = (
         f"🚨 Nuevo caso #{caso.id} · {caso.motivo.value}\n"
         f"Pedido: {pedido.codigo}\n"
@@ -221,7 +428,13 @@ def notify_operator_new_caso(
         f"Cliente: {pedido.cliente.nombre}\n"
         f"Descripción: {caso.descripcion[:200]}"
     )
-    tg.send_message(tg.operator_chat_id, text)
+    for chat_id in destinatarios:
+        envio = tg.send_message(chat_id, text)
+        if not envio.ok:
+            logger.warning(
+                "operator_notification_failed caso_id=%s chat_id=%s err=%s",
+                caso.id, chat_id, tg.redact(envio.error or "unknown"),
+            )
 
 
 # =========================================================================
@@ -268,7 +481,8 @@ def handle_telegram_update(
         _log_comando(db, chat_id, text, cliente, pedido, external_id)
         msg = (
             f"Tu chat_id de Telegram es: `{chat_id}`\n\n"
-            "Envíalo al administrador para recibir notificaciones de casos."
+            "Si eres operador, usa /vincular <email> <contraseña> para recibir "
+            "notificaciones de casos."
         )
         envio = tg.send_message(chat_id, msg, parse_mode="Markdown")
         _log_saliente_comando(
@@ -277,6 +491,14 @@ def handle_telegram_update(
             envio.error,
         )
         return {"handled": "whoami", "chat_id": chat_id, "sent": envio.ok}
+
+    # ---------- Operadores: vinculación por credenciales ----------
+    args_vincular = _command_args(text, "/vincular")
+    if args_vincular is not None:
+        return _link_operator(db, tg, chat_id, args_vincular, external_id)
+
+    if _command_args(text, "/desvincular") is not None:
+        return _unlink_operator(db, tg, chat_id, external_id)
 
     # ---------- Vinculación por código de pedido + DNI ----------
     if cliente:
@@ -356,7 +578,7 @@ def handle_telegram_update(
     if result.escalated and result.caso_id and pedido:
         caso = db.get(CasoEscalamiento, result.caso_id)
         if caso:
-            notify_operator_new_caso(caso, pedido, telegram=tg)
+            notify_operator_new_caso(caso, pedido, telegram=tg, db=db)
 
     return {
         "handled": "message",
