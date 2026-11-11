@@ -38,6 +38,9 @@ from app.schemas.webhook import WebhookAckResponse
 from app.services.agent_service import AgentService
 from app.services.whatsapp_service import WhatsAppService
 
+from app.services.telegram_handler import handle_telegram_update
+from app.services.telegram_service import TelegramService
+
 router = APIRouter()
 logger = get_logger("webhooks")
 
@@ -234,3 +237,25 @@ def _apply_status(db: Session, st: dict) -> bool:
         com.estado_entrega = new_status
         return True
     return False
+
+@router.post(
+    "/telegram",
+    summary="Recepción de updates de Telegram (webhook)",
+)
+async def receive_telegram(request: Request, db: Session = Depends(get_db)):
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    service = TelegramService()
+    if service.webhook_secret and secret != service.webhook_secret:
+        logger.warning("telegram_webhook_secret_invalid")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Secreto inválido")
+
+    try:
+        update = await request.json()
+    except Exception:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "JSON inválido")
+
+    try:
+        handle_telegram_update(db, update, telegram=service)
+    except Exception:
+        logger.exception("telegram_webhook_processing_failed")
+    return {"ok": True}

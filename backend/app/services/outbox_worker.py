@@ -33,6 +33,8 @@ from app.models import (
 from app.services.email_service import EmailService
 from app.services.whatsapp_service import WhatsAppService
 
+from app.services.telegram_service import TelegramService
+
 logger = get_logger("outbox_worker")
 
 _WHATSAPP_OK_STATES = {"PENDING", "FAILED_RETRY"}
@@ -44,6 +46,7 @@ class OutboxWorker:
         self.settings = get_settings()
         self.wa = WhatsAppService()
         self.email = EmailService()
+        self.telegram = TelegramService()
 
     def process_batch(self, batch_size: int | None = None) -> dict[str, int]:
         size = batch_size or self.settings.OUTBOX_BATCH_SIZE
@@ -85,6 +88,10 @@ class OutboxWorker:
         # Canal Email directo
         if com.canal == Canal.EMAIL:
             return self._send_email(com, cliente, fallback=False)
+
+        # Canal Telegram
+        if com.canal == Canal.TELEGRAM:
+            return self._send_telegram(com, cliente)
 
         # WhatsApp
         if not cliente.telefono_whatsapp:
@@ -191,3 +198,33 @@ class OutboxWorker:
             return []
         cliente = pedido.cliente
         return [cliente.nombre or "", pedido.codigo or ""]
+
+    def _send_telegram(self, com: Comunicacion, cliente: Cliente) -> str:
+        if not cliente.telegram_chat_id:
+            self._mark_terminal_failure(com, "cliente sin telegram_chat_id")
+            return "failed_terminal"
+
+        result = self.telegram.send_message(cliente.telegram_chat_id, com.contenido)
+
+        if result.ok:
+            com.estado_entrega = "SENT"
+            com.enviado_en = datetime.utcnow()
+            com.error_envio = None
+            com.proximo_intento = None
+            com.intentos_envio += 1
+            return "sent"
+
+        if not result.retriable:
+            self._mark_terminal_failure(com, f"telegram: {result.error}")
+            return "failed_terminal"
+
+        com.intentos_envio += 1
+        com.error_envio = (result.error or "")[:500]
+        if com.intentos_envio >= self.settings.WHATSAPP_MAX_RETRIES:
+            self._mark_terminal_failure(com, "máximo de reintentos alcanzado")
+            return "failed_terminal"
+        com.estado_entrega = "FAILED_RETRY"
+        com.proximo_intento = datetime.utcnow() + timedelta(
+            seconds=self._backoff(com.intentos_envio)
+        )
+        return "retried"

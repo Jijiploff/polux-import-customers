@@ -34,6 +34,7 @@ class Canal(str, enum.Enum):
     WHATSAPP = "WHATSAPP"
     EMAIL = "EMAIL"
     WEB = "WEB"
+    TELEGRAM = "TELEGRAM"
 
 
 class DireccionComunicacion(str, enum.Enum):

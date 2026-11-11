@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     AGENT_CONTEXT_MESSAGES: int = 5
     AGENT_MAX_RESPONSE_SECONDS: int = 12
 
+        # ---- Telegram ----
+    TELEGRAM_ENABLED: bool = False
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_WEBHOOK_SECRET: str = ""
+    TELEGRAM_OPERATOR_CHAT_ID: str = ""
+    TELEGRAM_API_TIMEOUT_SECONDS: int = 15
+
     @property
     def database_url(self) -> str:
         driver = self.DB_DRIVER.replace(" ", "+")

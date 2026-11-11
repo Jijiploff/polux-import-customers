@@ -3,6 +3,11 @@
 Cada método `_rule_*` es idempotente: revisar dos veces seguidas no duplica
 alertas, casos ni comunicaciones. `run_all()` agrupa la ejecución completa.
 Las comunicaciones se encolan con estado_entrega="PENDING" (Fase 5 las envía).
+
+Cuando una regla crea un `CasoEscalamiento`, se notifica al operador por
+Telegram (si `TELEGRAM_OPERATOR_CHAT_ID` está configurado). La importación de
+`notify_operator_new_caso` es **local** para evitar un ciclo de imports:
+    rule_engine → telegram_handler → agent_service → rule_engine
 """
 from __future__ import annotations
 
@@ -17,12 +22,10 @@ from app.models import (
     Alerta,
     AutorComunicacion,
     CasoEscalamiento,
-    Cliente,
     Comunicacion,
     DireccionComunicacion,
     EstadoAlerta,
     EstadoCaso,
-    EstadoEntrega,
     EstadoHito,
     EstadoImprevisto,
     EstadoItem,
@@ -40,6 +43,27 @@ from app.models import (
 from app.services.notification_service import NotificationService
 
 logger = get_logger("rule_engine")
+
+
+def _notify_operator(caso: CasoEscalamiento, pedido: Pedido) -> None:
+    """Notifica al operador por Telegram sobre un caso recién creado.
+
+    Import local para romper el ciclo:
+        rule_engine ← agent_service ← telegram_handler ← rule_engine
+
+    Nunca lanza excepción: si Telegram está deshabilitado o falla, sólo
+    se registra un log. El flujo del motor de reglas continúa.
+    """
+    try:
+        from app.services.telegram_handler import notify_operator_new_caso
+
+        notify_operator_new_caso(caso, pedido)
+    except Exception:
+        logger.exception(
+            "notify_operator_failed caso_id=%s pedido_id=%s",
+            caso.id if caso else None,
+            pedido.id if pedido else None,
+        )
 
 
 class RuleEngine:
@@ -96,6 +120,7 @@ class RuleEngine:
         """Regla 10: el agente NO decide entregas parciales. Solo informa y escala.
 
         Se invoca desde la Fase 4 (agente IA) al detectar `intencion=entrega_parcial`.
+        Notifica al operador por Telegram.
         """
         pedido = self.db.get(Pedido, pedido_id)
         if pedido is None:
@@ -121,6 +146,7 @@ class RuleEngine:
         self.db.add(caso)
         self.db.commit()
         self.db.refresh(caso)
+        _notify_operator(caso, pedido)
         return caso
 
     # --------- helpers ---------
@@ -130,7 +156,7 @@ class RuleEngine:
     def _regla_int(self, codigo: str, default: int) -> int:
         regla = self.db.scalar(
             select(ReglaNegocio).where(
-                ReglaNegocio.codigo == codigo, ReglaNegocio.activo== True
+                ReglaNegocio.codigo == codigo, ReglaNegocio.activo == True
             )
         )
         if regla is None:
@@ -149,8 +175,11 @@ class RuleEngine:
         pedidos = self.db.scalars(
             select(Pedido).where(
                 Pedido.estado_actual.not_in(
-                    [EstadoPedido.CERRADO, EstadoPedido.CERRADO_CON_OBSERVACIONES,
-                     EstadoPedido.CANCELADO]
+                    [
+                        EstadoPedido.CERRADO,
+                        EstadoPedido.CERRADO_CON_OBSERVACIONES,
+                        EstadoPedido.CANCELADO,
+                    ]
                 )
             )
         ).all()
@@ -161,9 +190,10 @@ class RuleEngine:
             items = self.db.scalars(
                 select(PedidoItem).where(PedidoItem.pedido_id == pedido.id)
             ).all()
-            resumen = ", ".join(
-                f"{i.cantidad}x {i.descripcion_producto}" for i in items
-            ) or "(sin ítems)"
+            resumen = (
+                ", ".join(f"{i.cantidad}x {i.descripcion_producto}" for i in items)
+                or "(sin ítems)"
+            )
             com = self.notifier.send_from_template(
                 codigo_plantilla="BIENVENIDA",
                 pedido=pedido,
@@ -182,13 +212,12 @@ class RuleEngine:
         hitos_pendientes = self.db.scalars(
             select(ItemHito).where(
                 ItemHito.estado == EstadoHito.COMPLETADO,
-                ItemHito.notificado_cliente== False,
+                ItemHito.notificado_cliente == False,
             )
         ).all()
         if not hitos_pendientes:
             return
 
-        # Agrupar por pedido
         por_pedido: dict[int, list[ItemHito]] = {}
         for ih in hitos_pendientes:
             pedido_id = ih.item.pedido_id
@@ -199,9 +228,7 @@ class RuleEngine:
             if pedido is None:
                 continue
             hitos_txt = ", ".join(sorted({ih.hito.nombre for ih in hitos}))
-            items_txt = ", ".join(
-                sorted({ih.item.descripcion_producto for ih in hitos})
-            )
+            items_txt = ", ".join(sorted({ih.item.descripcion_producto for ih in hitos}))
             com = self.notifier.send_from_template(
                 codigo_plantilla="AVISO_HITO",
                 pedido=pedido,
@@ -214,9 +241,6 @@ class RuleEngine:
                 },
             )
             if com is None:
-                # Consentimiento revocado: no se notifica, pero se marca para no
-                # reintentar en cada ciclo (la regla de consentimiento ya está
-                # bloqueando; esto sólo evita logs repetidos).
                 continue
             for ih in hitos:
                 ih.notificado_cliente = True
@@ -230,8 +254,11 @@ class RuleEngine:
         pedidos = self.db.scalars(
             select(Pedido).where(
                 Pedido.estado_actual.in_(
-                    [EstadoPedido.RECIBIDO, EstadoPedido.EN_PROCESO,
-                     EstadoPedido.EN_COORDINACION]
+                    [
+                        EstadoPedido.RECIBIDO,
+                        EstadoPedido.EN_PROCESO,
+                        EstadoPedido.EN_COORDINACION,
+                    ]
                 )
             )
         ).all()
@@ -243,10 +270,7 @@ class RuleEngine:
                 .order_by(Comunicacion.fecha.desc())
                 .limit(1)
             )
-            if ultima is None:
-                referencia = pedido.fecha_ingreso
-            else:
-                referencia = ultima
+            referencia = ultima if ultima is not None else pedido.fecha_ingreso
             if referencia > umbral:
                 continue
 
@@ -263,14 +287,14 @@ class RuleEngine:
                 self._inc("actualizacion_periodica")
 
     def _rule_retraso_leve(self) -> None:
-        """Retraso leve: `dias_atraso > 0` y ≤ umbral → aviso + alerta BAJA/MEDIA."""
+        """Retraso leve: `dias_atraso > 0` y ≤ umbral → aviso + alerta MEDIA."""
         umbral = self._regla_int("RETRASO_LEVE_DIAS", 2)
         hitos = self.db.scalars(
             select(ItemHito).where(
                 ItemHito.estado == EstadoHito.ATRASADO,
                 ItemHito.dias_atraso > 0,
                 ItemHito.dias_atraso <= umbral,
-                ItemHito.notificado_cliente== False,
+                ItemHito.notificado_cliente == False,
             )
         ).all()
 
@@ -287,7 +311,9 @@ class RuleEngine:
                     "hito_nombre": ih.hito.nombre,
                     "fecha_estimada": (
                         ih.fecha_prevista + timedelta(days=2)
-                    ).strftime("%d/%m/%Y") if ih.fecha_prevista else "",
+                    ).strftime("%d/%m/%Y")
+                    if ih.fecha_prevista
+                    else "",
                 },
             )
             if com:
@@ -308,7 +334,7 @@ class RuleEngine:
                 self._inc("retraso_leve")
 
     def _rule_retraso_critico(self) -> None:
-        """Retraso crítico: `> umbral` o fecha prometida en riesgo → alerta ALTA + caso."""
+        """Retraso crítico: `> umbral` o fecha prometida en riesgo → alerta CRÍTICA + caso."""
         umbral = self._regla_int("RETRASO_CRITICO_DIAS", 5)
         dias_riesgo = self._regla_int("RIESGO_FECHA_PROMETIDA_DIAS", 2)
 
@@ -319,7 +345,6 @@ class RuleEngine:
                 ItemHito.dias_atraso > umbral,
             )
         ).all()
-
         pedidos_criticos: set[int] = {ih.item.pedido_id for ih in hitos}
 
         # 2) Pedidos cuya fecha prometida está en riesgo
@@ -335,16 +360,21 @@ class RuleEngine:
         pedidos_criticos.update(p.id for p in pedidos_riesgo)
 
         for pedido_id in pedidos_criticos:
-            if self._caso_abierto_para_pedido(pedido_id, MotivoEscalamiento.RETRASO_CRITICO):
+            if self._caso_abierto_para_pedido(
+                pedido_id, MotivoEscalamiento.RETRASO_CRITICO
+            ):
                 continue
             pedido = self.db.get(Pedido, pedido_id)
             if pedido is None:
                 continue
+
             self.notifier.send_from_template(
                 codigo_plantilla="RETRASO_CRITICO",
                 pedido=pedido,
-                variables={"cliente_nombre": pedido.cliente.nombre,
-                           "pedido_codigo": pedido.codigo},
+                variables={
+                    "cliente_nombre": pedido.cliente.nombre,
+                    "pedido_codigo": pedido.codigo,
+                },
             )
             self.db.add(
                 Alerta(
@@ -356,18 +386,19 @@ class RuleEngine:
                     fecha_deteccion=self.now,
                 )
             )
-            self.db.add(
-                CasoEscalamiento(
-                    pedido_id=pedido_id,
-                    motivo=MotivoEscalamiento.RETRASO_CRITICO,
-                    prioridad=PrioridadCaso.CRITICA,
-                    descripcion=(
-                        "Hito superó el SLA crítico o la fecha prometida está en riesgo."
-                    ),
-                    fecha_apertura=self.now,
-                    estado=EstadoCaso.ABIERTO,
-                )
+            caso = CasoEscalamiento(
+                pedido_id=pedido_id,
+                motivo=MotivoEscalamiento.RETRASO_CRITICO,
+                prioridad=PrioridadCaso.CRITICA,
+                descripcion=(
+                    "Hito superó el SLA crítico o la fecha prometida está en riesgo."
+                ),
+                fecha_apertura=self.now,
+                estado=EstadoCaso.ABIERTO,
             )
+            self.db.add(caso)
+            self.db.flush()
+            _notify_operator(caso, pedido)
             self._inc("retraso_critico")
 
     def _rule_imprevisto(self) -> None:
@@ -380,16 +411,21 @@ class RuleEngine:
             )
         ).all()
         for imp in imprevistos:
-            if self._caso_abierto_para_pedido(imp.pedido_id, MotivoEscalamiento.IMPREVISTO):
+            if self._caso_abierto_para_pedido(
+                imp.pedido_id, MotivoEscalamiento.IMPREVISTO
+            ):
                 continue
             pedido = self.db.get(Pedido, imp.pedido_id)
             if pedido is None:
                 continue
+
             self.notifier.send_from_template(
                 codigo_plantilla="IMPREVISTO",
                 pedido=pedido,
-                variables={"cliente_nombre": pedido.cliente.nombre,
-                           "pedido_codigo": pedido.codigo},
+                variables={
+                    "cliente_nombre": pedido.cliente.nombre,
+                    "pedido_codigo": pedido.codigo,
+                },
             )
             self.db.add(
                 Alerta(
@@ -402,16 +438,17 @@ class RuleEngine:
                     fecha_deteccion=self.now,
                 )
             )
-            self.db.add(
-                CasoEscalamiento(
-                    pedido_id=pedido.id,
-                    motivo=MotivoEscalamiento.IMPREVISTO,
-                    prioridad=PrioridadCaso.ALTA,
-                    descripcion=f"Imprevisto registrado: {imp.descripcion}",
-                    fecha_apertura=self.now,
-                    estado=EstadoCaso.ABIERTO,
-                )
+            caso = CasoEscalamiento(
+                pedido_id=pedido.id,
+                motivo=MotivoEscalamiento.IMPREVISTO,
+                prioridad=PrioridadCaso.ALTA,
+                descripcion=f"Imprevisto registrado: {imp.descripcion}",
+                fecha_apertura=self.now,
+                estado=EstadoCaso.ABIERTO,
             )
+            self.db.add(caso)
+            self.db.flush()
+            _notify_operator(caso, pedido)
             self._inc("imprevisto")
 
     def _rule_silencio_cliente(self) -> None:
@@ -421,7 +458,9 @@ class RuleEngine:
         h3 = self._regla_int("CASO_FALTA_RESPUESTA_HORAS", 72)
 
         pedidos = self.db.scalars(
-            select(Pedido).where(Pedido.estado_actual == EstadoPedido.EN_COORDINACION)
+            select(Pedido).where(
+                Pedido.estado_actual == EstadoPedido.EN_COORDINACION
+            )
         ).all()
 
         for pedido in pedidos:
@@ -448,7 +487,7 @@ class RuleEngine:
                 .limit(1)
             )
             if ultima_entrante and ultima_entrante > ultima_saliente.fecha:
-                continue  # el cliente respondió: no está en silencio
+                continue
 
             horas = (self.now - ultima_saliente.fecha).total_seconds() / 3600
             reintentos = self._contar_reintentos(pedido.id)
@@ -457,32 +496,37 @@ class RuleEngine:
                 self.notifier.send_from_template(
                     codigo_plantilla="REINTENTO_24H",
                     pedido=pedido,
-                    variables={"cliente_nombre": pedido.cliente.nombre,
-                               "pedido_codigo": pedido.codigo},
+                    variables={
+                        "cliente_nombre": pedido.cliente.nombre,
+                        "pedido_codigo": pedido.codigo,
+                    },
                 )
                 self._inc("reintento_24h")
             elif reintentos == 1 and horas >= h2:
                 self.notifier.send_from_template(
                     codigo_plantilla="REINTENTO_48H",
                     pedido=pedido,
-                    variables={"cliente_nombre": pedido.cliente.nombre,
-                               "pedido_codigo": pedido.codigo},
+                    variables={
+                        "cliente_nombre": pedido.cliente.nombre,
+                        "pedido_codigo": pedido.codigo,
+                    },
                 )
                 self._inc("reintento_48h")
             elif reintentos >= 2 and horas >= h3:
                 if not self._caso_abierto_para_pedido(
                     pedido.id, MotivoEscalamiento.FALTA_RESPUESTA
                 ):
-                    self.db.add(
-                        CasoEscalamiento(
-                            pedido_id=pedido.id,
-                            motivo=MotivoEscalamiento.FALTA_RESPUESTA,
-                            prioridad=PrioridadCaso.ALTA,
-                            descripcion="Cliente sin respuesta tras 2 reintentos.",
-                            fecha_apertura=self.now,
-                            estado=EstadoCaso.ABIERTO,
-                        )
+                    caso = CasoEscalamiento(
+                        pedido_id=pedido.id,
+                        motivo=MotivoEscalamiento.FALTA_RESPUESTA,
+                        prioridad=PrioridadCaso.ALTA,
+                        descripcion="Cliente sin respuesta tras 2 reintentos.",
+                        fecha_apertura=self.now,
+                        estado=EstadoCaso.ABIERTO,
                     )
+                    self.db.add(caso)
+                    self.db.flush()
+                    _notify_operator(caso, pedido)
                     self._inc("caso_falta_respuesta")
 
     def _rule_reclamo_tono_negativo(self) -> None:
@@ -502,7 +546,9 @@ class RuleEngine:
         for c in comunicaciones:
             if c.pedido_id is None:
                 continue
-            if self._caso_abierto_para_pedido(c.pedido_id, MotivoEscalamiento.RECLAMO):
+            if self._caso_abierto_para_pedido(
+                c.pedido_id, MotivoEscalamiento.RECLAMO
+            ):
                 continue
             motivo = (
                 MotivoEscalamiento.RECLAMO
@@ -514,7 +560,10 @@ class RuleEngine:
                 comunicacion_origen_id=c.id,
                 motivo=motivo,
                 prioridad=PrioridadCaso.ALTA,
-                descripcion=f"Comunicación entrante detectada como {motivo.value}. Escalar sin resolver.",
+                descripcion=(
+                    f"Comunicación entrante detectada como {motivo.value}. "
+                    "Escalar sin resolver."
+                ),
                 fecha_apertura=self.now,
                 estado=EstadoCaso.ABIERTO,
             )
@@ -522,6 +571,10 @@ class RuleEngine:
             self.db.flush()
             c.escalado = True
             c.caso_id = caso.id
+
+            pedido = self.db.get(Pedido, c.pedido_id)
+            if pedido is not None:
+                _notify_operator(caso, pedido)
             self._inc("reclamo_escalado")
 
     def _rule_entrega_lista(self) -> None:
@@ -540,7 +593,9 @@ class RuleEngine:
             ).all()
             if not items:
                 continue
-            if not all(i.estado == EstadoItem.LISTO_PARA_ENTREGA for i in items):
+            if not all(
+                i.estado == EstadoItem.LISTO_PARA_ENTREGA for i in items
+            ):
                 continue
             pedido.estado_actual = EstadoPedido.LISTO_PARA_ENTREGA
             if self.notifier.has_plantilla_for_pedido(pedido.id, "ENTREGA_LISTA"):
@@ -558,7 +613,9 @@ class RuleEngine:
                 self._inc("entrega_lista")
 
     # --------- helpers de idempotencia ---------
-    def _alerta_abierta_para_hito(self, item_hito_id: int, tipo: TipoAlerta) -> bool:
+    def _alerta_abierta_para_hito(
+        self, item_hito_id: int, tipo: TipoAlerta
+    ) -> bool:
         return (
             self.db.scalar(
                 select(Alerta.id).where(
@@ -592,7 +649,10 @@ class RuleEngine:
         return (
             self.db.scalar(
                 select(func.count(Comunicacion.id))
-                .join(PlantillaMensaje, PlantillaMensaje.id == Comunicacion.plantilla_id)
+                .join(
+                    PlantillaMensaje,
+                    PlantillaMensaje.id == Comunicacion.plantilla_id,
+                )
                 .where(
                     Comunicacion.pedido_id == pedido_id,
                     PlantillaMensaje.evento == "REINTENTO_CONTACTO",

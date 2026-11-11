@@ -99,6 +99,10 @@ class Cliente(Base, TimestampMixin, AuditUserMixin):
     consentimiento_fecha: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     consentimiento_revocado_fecha: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    telegram_chat_id: Mapped[str | None] = mapped_column(
+        Unicode(40), nullable=True, index=True
+    )
+
     pedidos = relationship("Pedido", back_populates="cliente")
 
 
