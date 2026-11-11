@@ -27,6 +27,7 @@ from app.models.comms import (  # noqa: F401
     AutorComunicacion,
     Canal,
     CasoEscalamiento,
+    CasoTelegramNotificacion,
     Comunicacion,
     DireccionComunicacion,
     EstadoAlerta,
@@ -40,6 +41,7 @@ from app.models.comms import (  # noqa: F401
     SeveridadAlerta,
     TipoAlerta,
     TipoImprevisto,
+    UsuarioCasoActivo,
 )
 from app.models.delivery import (  # noqa: F401
     Conformidad,
@@ -75,6 +77,7 @@ __all__ = [
     "EstadoIngreso", "EstadoPedido", "ModalidadEntrega", "OrigenItem", "EstadoItem", "EstadoHito",
     # comms
     "PlantillaMensaje", "Comunicacion", "Alerta", "Imprevisto", "CasoEscalamiento",
+    "CasoTelegramNotificacion", "UsuarioCasoActivo",
     "Canal", "DireccionComunicacion", "AutorComunicacion", "Sentimiento",
     "TipoAlerta", "SeveridadAlerta", "EstadoAlerta",
     "TipoImprevisto", "EstadoImprevisto", "MotivoEscalamiento", "PrioridadCaso", "EstadoCaso",

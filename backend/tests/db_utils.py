@@ -10,6 +10,7 @@ from sqlalchemy import delete, select, update
 from app.models import (
     Alerta,
     CasoEscalamiento,
+    CasoTelegramNotificacion,
     Cliente,
     Comunicacion,
     Conformidad,
@@ -31,6 +32,7 @@ from app.models import (
     OrigenItem,
     Pedido,
     PedidoItem,
+    UsuarioCasoActivo,
 )
 
 
@@ -73,6 +75,16 @@ def cleanup_pedido(db, pedido_id: int) -> None:
     )))
     db.execute(delete(Entrega).where(Entrega.pedido_id == pedido_id))
     # 5) Casos e imprevistos (referencian comunicacion/pedido_item)
+    db.execute(delete(CasoTelegramNotificacion).where(
+        CasoTelegramNotificacion.caso_id.in_(
+            select(CasoEscalamiento.id).where(CasoEscalamiento.pedido_id == pedido_id)
+        )
+    ))
+    db.execute(delete(UsuarioCasoActivo).where(
+        UsuarioCasoActivo.caso_id.in_(
+            select(CasoEscalamiento.id).where(CasoEscalamiento.pedido_id == pedido_id)
+        )
+    ))
     db.execute(delete(CasoEscalamiento).where(
         CasoEscalamiento.pedido_id == pedido_id
     ))

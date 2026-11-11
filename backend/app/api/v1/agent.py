@@ -11,7 +11,7 @@ from app.core.deps import get_current_user, require_admin, require_operador
 from app.core.logging import get_logger
 from app.db.session import get_db
 from app.models import (
-    AutorComunicacion, Canal, CasoEscalamiento, Comunicacion,
+    AutorComunicacion, CasoEscalamiento, Comunicacion,
     DireccionComunicacion, EstadoCaso, Pedido,
 )
 from app.schemas.agent import (
@@ -24,6 +24,11 @@ from app.schemas.agent import (
     ThreadMessage,
 )
 from app.services.agent_service import AgentService
+from app.services.caso_service import (
+    CasoError,
+    enviar_mensaje_humano,
+    responder_caso,
+)
 from app.services.llm_provider import get_llm_provider
 
 router = APIRouter()
@@ -187,11 +192,11 @@ def human_reply(
 ):
     """Escribe una respuesta humana en el hilo.
 
-    - Queda registrada como `HUMANO`/saliente (auditoría completa).
+    - Queda registrada como `HUMANO`/saliente por Telegram (auditoría completa).
     - El agente **no interviene** en los próximos
       `AGENT_RECENT_HUMAN_RESPONSE_MINUTES` (tiene prioridad la persona).
-    - Si hay un caso abierto, se marca su primera acción humana y pasa a
-      `EN_PROCESO`.
+    - Si hay un caso abierto, se marca su primera acción humana, pasa a
+      `EN_PROCESO` y el primero que responde queda como responsable.
     """
     pedido = db.get(Pedido, payload.pedido_id)
     if pedido is None:
@@ -206,31 +211,34 @@ def human_reply(
         .order_by(CasoEscalamiento.fecha_apertura.desc())
         .limit(1)
     )
-    aviso = None
-    if caso is not None:
-        if caso.fecha_primera_accion is None:
-            caso.fecha_primera_accion = datetime.utcnow()
-        if caso.estado == EstadoCaso.ABIERTO:
-            caso.estado = EstadoCaso.EN_PROCESO
-        aviso = f"Caso #{caso.id} en proceso (registrada la primera respuesta humana)."
 
-    com = Comunicacion(
-        pedido_id=pedido.id,
-        direccion=DireccionComunicacion.SALIENTE,
-        canal=Canal.WHATSAPP,
-        contenido=payload.contenido,
-        autor=AutorComunicacion.HUMANO,
-        escalado=caso is not None,
-        caso_id=caso.id if caso else None,
-        estado_entrega="SENT",
-        enviado_en=datetime.utcnow(),
-        fecha=datetime.utcnow(),
-        created_by_id=current.id,
-        updated_by_id=current.id,
-    )
-    db.add(com)
-    db.commit()
-    db.refresh(com)
+    try:
+        if caso is not None:
+            caso, com, envio = responder_caso(
+                db, caso.id, payload.contenido, usuario_id=current.id,
+            )
+            aviso = (
+                f"Caso #{caso.id} en proceso (registrada la primera respuesta humana)."
+            )
+            if not envio.ok:
+                aviso += (
+                    " El mensaje quedó registrado pero no se pudo entregar por "
+                    f"Telegram: {envio.error or 'error desconocido'}."
+                )
+        else:
+            com, envio = enviar_mensaje_humano(
+                db, pedido, payload.contenido, usuario_id=current.id,
+            )
+            aviso = None
+            if not envio.ok:
+                aviso = (
+                    "El mensaje quedó registrado pero no se pudo entregar por "
+                    f"Telegram: {envio.error or 'error desconocido'}."
+                )
+    except CasoError as exc:
+        status_code = 409 if exc.code in {"asignado", "ya_cerrado"} else 400
+        raise HTTPException(status_code=status_code, detail=exc.message)
+
     logger.info(
         "respuesta_humana pedido_id=%s com_id=%s caso_id=%s usuario=%s",
         pedido.id, com.id, caso.id if caso else None, current.email,

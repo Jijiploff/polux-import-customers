@@ -4,7 +4,7 @@ Guía paso a paso para activar el canal de Telegram en el sistema de
 seguimiento al cliente, con derivación a empleados.
 
 > **Estado previo requerido**: sistema levantado con Fases 0-8 completas
-> (ver `LEVANTAMIENTO.md`). Migraciones aplicadas hasta `0008_usuario_telegram`.
+> (ver `LEVANTAMIENTO.md`). Migraciones aplicadas hasta `0009_caso_telegram_reply`.
 
 ---
 
@@ -15,7 +15,7 @@ seguimiento al cliente, con derivación a empleados.
 3. [Configurar variables de entorno](#3-configurar-variables-de-entorno)
 4. [Reconstruir backend y aplicar migración](#4-reconstruir-backend-y-aplicar-migración)
 5. [Iniciar el bot (polling o webhook)](#5-iniciar-el-bot-polling-o-webhook)
-6. [Vincular el operador (notificaciones)](#6-vincular-el-operador-notificaciones)
+6. [Vincular operadores (notificaciones y respuestas)](#6-vincular-operadores-notificaciones-y-respuestas)
 7. [Probar el flujo completo](#7-probar-el-flujo-completo)
 8. [Verificar en la base de datos](#8-verificar-en-la-base-de-datos)
 9. [Troubleshooting](#9-troubleshooting)
@@ -36,7 +36,7 @@ curl http://localhost:8000/api/v1/health
 :: BD accesible
 curl http://localhost:8000/api/v1/health/db
 
-:: Migraciones al día (debe mostrar 0008_usuario_telegram como head)
+:: Migraciones al día (debe mostrar 0009_caso_telegram_reply como head)
 docker compose exec -T backend alembic current
 ```
 
@@ -235,7 +235,7 @@ Debe mostrar `"url":"https://a1b2c3.ngrok-free.app/api/v1/webhooks/telegram"`.
 
 ---
 
-## 6. Vincular operadores (notificaciones)
+## 6. Vincular operadores (notificaciones y respuestas)
 
 Pueden ser **varios operadores**. Cada uno vincula su propio chat con sus
 credenciales de Polux Import; no se comparte una contraseña.
@@ -339,13 +339,18 @@ Con el bot corriendo (polling en una terminal), ejecuta las siguientes pruebas.
    que te contactará en breve.
    ```
 3. **En tu otra cuenta de Telegram** (el operador configurado en el paso 6),
-   recibirás una notificación:
+   recibirás una notificación con botones:
    ```
    🚨 Nuevo caso #N · RECLAMO
    Pedido: PD-2025-0001
    Prioridad: ALTA
    Cliente: María Rodríguez
    Descripción: Comunicación entrante detectada como RECLAMO. Escalar sin resolver.
+
+   Pulsa un botón o responde citando este mensaje para atender el caso.
+
+   [📄 Ver caso]  [💬 Responder]
+   [✅ Cerrar caso]
    ```
 
 ### Test 4 — Entrega parcial (regla inviolable)
@@ -381,6 +386,53 @@ Con el bot corriendo (polling en una terminal), ejecuta las siguientes pruebas.
 2. Login como `operador@poluximport.pe` / `Oper123!`
 3. Ve a **Casos**
 4. Verás los casos generados desde Telegram, con trazabilidad completa.
+
+### Test 7 — Responder un caso desde Telegram
+
+1. En el aviso del caso, pulsa **📄 Ver caso**: el bot muestra la ficha
+   (estado, prioridad, responsable, pedido, fecha prometida, modalidad) y los
+   últimos eventos de la línea de tiempo.
+2. Pulsa **💬 Responder**. El bot confirma:
+   ```
+   💬 Caso #N activo. Escribe tu respuesta y la enviaré al cliente.
+   Usa /salir para terminar.
+   ```
+3. Escribe la respuesta. El cliente la recibe en su chat de Telegram y el
+   mensaje queda registrado como `HUMANO` / `TELEGRAM` en `comunicacion`.
+4. Cuando el cliente vuelva a escribir, el bot **no responde solo**: reenvía
+   el mensaje al operador responsable (o a todos si el caso aún no tiene
+   responsable) con un botón para responder. Así la conversación sigue siendo
+   un chat entre persona y persona.
+5. También puedes responder **citando** el aviso del caso o el mensaje
+   reenviado del cliente, o usar:
+   ```
+   /responder N Hola, ya estamos revisando tu caso.
+   ```
+6. El primer operador que responde queda como responsable. Si otro intenta
+   responder, el bot le indica quién está atendiendo el caso.
+
+### Test 8 — Cerrar el caso desde Telegram
+
+1. Pulsa **✅ Cerrar caso** (o envía `/cerrar N`).
+2. El caso pasa a `CERRADO` con fecha de cierre.
+3. El cliente recibe un aviso de cierre en su chat.
+4. El operador sale automáticamente del modo respuesta.
+
+### Comandos de operador
+
+```
+/casos                  → casos abiertos o en proceso
+/caso N                 → ficha + línea de tiempo
+/responder N mensaje    → responder al cliente
+/cerrar N               → cerrar el caso
+/salir                  → salir del modo respuesta
+```
+
+> El modo respuesta caduca a las 2 horas sin actividad. Usa `/salir` para
+> terminarlo antes.
+>
+> WhatsApp queda desactivado (`WHATSAPP_ENABLED=false`): las respuestas
+> humanas del bot y del panel web se entregan por Telegram.
 
 ---
 

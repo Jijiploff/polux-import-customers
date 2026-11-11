@@ -55,10 +55,16 @@ class NotificationService:
             return None
 
         cuerpo = TemplateRenderer.render(plantilla.cuerpo, variables)
+        # Telegram es el canal primario cuando el cliente ya vinculó su chat.
+        canal = (
+            Canal.TELEGRAM
+            if pedido.cliente and pedido.cliente.telegram_chat_id
+            else plantilla.canal
+        )
         com = Comunicacion(
             pedido_id=pedido.id,
             direccion=DireccionComunicacion.SALIENTE,
-            canal=plantilla.canal,
+            canal=canal,
             contenido=cuerpo,
             autor=AutorComunicacion.AGENTE,
             plantilla_id=plantilla.id,
@@ -99,7 +105,14 @@ class NotificationService:
         com = Comunicacion(
             pedido_id=pedido.id,
             direccion=DireccionComunicacion.SALIENTE,
-            canal=canal or Canal.WHATSAPP,
+            canal=(
+                canal
+                or (
+                    Canal.TELEGRAM
+                    if pedido.cliente and pedido.cliente.telegram_chat_id
+                    else Canal.WHATSAPP
+                )
+            ),
             contenido=contenido,
             intencion_detectada=intencion,
             sentimiento=sentimiento,
@@ -149,10 +162,15 @@ class NotificationService:
             return None
 
         cuerpo = TemplateRenderer.render(plantilla.cuerpo, variables)
+        canal = (
+            Canal.TELEGRAM
+            if pedido.cliente and pedido.cliente.telegram_chat_id
+            else plantilla.canal
+        )
         com = Comunicacion(
             pedido_id=pedido.id,
             direccion=DireccionComunicacion.SALIENTE,
-            canal=plantilla.canal,
+            canal=canal,
             contenido=cuerpo,
             intencion_detectada=intencion,
             sentimiento=sentimiento,

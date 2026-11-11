@@ -47,6 +47,8 @@ class TelegramService:
         *,
         parse_mode: str | None = None,
         disable_notification: bool = False,
+        reply_markup: dict[str, Any] | None = None,
+        reply_to_message_id: int | None = None,
     ) -> TelegramSendResult:
         if not self._ready():
             return TelegramSendResult(ok=False, message_id=None, error="telegram_disabled")
@@ -60,6 +62,10 @@ class TelegramService:
         }
         if parse_mode:
             payload["parse_mode"] = parse_mode
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        if reply_to_message_id is not None:
+            payload["reply_to_message_id"] = int(reply_to_message_id)
 
         try:
             with httpx.Client(timeout=self.timeout) as client:
@@ -82,6 +88,37 @@ class TelegramService:
             desc = f"HTTP {r.status_code}: {r.text[:200]}"
         logger.warning("telegram_send_failed status=%s desc=%s", r.status_code, desc)
         return TelegramSendResult(ok=False, message_id=None, error=desc, retriable=retriable)
+
+    def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str | None = None,
+        *,
+        show_alert: bool = False,
+    ) -> dict[str, Any]:
+        """Detiene el spinner del botón y, opcionalmente, muestra un aviso."""
+        if not self._ready():
+            return {"ok": False, "description": "telegram_disabled"}
+        payload: dict[str, Any] = {
+            "callback_query_id": str(callback_query_id),
+            "show_alert": show_alert,
+        }
+        if text:
+            payload["text"] = text[:200]
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                r = client.post(f"{self.base_url}/answerCallbackQuery", json=payload)
+        except httpx.HTTPError as exc:
+            err = self.redact(str(exc))
+            logger.warning("telegram_answer_callback_error err=%s", err)
+            return {"ok": False, "description": err}
+        if r.status_code == 200:
+            return r.json()
+        logger.warning(
+            "telegram_answer_callback_failed status=%s desc=%s",
+            r.status_code, r.text[:200],
+        )
+        return {"ok": False, "description": f"HTTP {r.status_code}"}
 
     # ---------- Webhook ----------
     def set_webhook(self, url: str, secret_token: str | None = None) -> dict[str, Any]:

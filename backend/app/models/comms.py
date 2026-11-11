@@ -12,6 +12,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -300,3 +301,51 @@ class CasoEscalamiento(Base, TimestampMixin, AuditUserMixin):
     fecha_cierre: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     pedido = relationship("Pedido")
+
+
+class CasoTelegramNotificacion(Base, TimestampMixin):
+    """Mapea el mensaje de aviso de un caso con el chat que lo recibió.
+
+    Telegram sólo entrega `reply_to_message.message_id`; con esta tabla el
+    bot sabe a qué caso pertenece una respuesta citada. Se guarda una fila
+    por operador notificado (un mismo caso genera varios mensajes).
+    """
+
+    __tablename__ = "caso_telegram_notificacion"
+    __table_args__ = (
+        UniqueConstraint(
+            "chat_id", "message_id", name="uq_caso_telegram_chat_msg"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    caso_id: Mapped[int] = mapped_column(
+        ForeignKey("caso_escalamiento.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuario.id", ondelete="SET NULL"), nullable=True
+    )
+    chat_id: Mapped[str] = mapped_column(Unicode(40), nullable=False)
+    message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class UsuarioCasoActivo(Base, TimestampMixin):
+    """Caso que el operador está atendiendo en su chat de Telegram.
+
+    Permite el flujo tipo chat: tras pulsar "Responder", los mensajes
+    siguientes se envían al cliente hasta `/salir` o hasta que expire la
+    sesión (TTL controlado por el handler).
+    """
+
+    __tablename__ = "usuario_caso_activo"
+
+    usuario_id: Mapped[int] = mapped_column(
+        ForeignKey("usuario.id", ondelete="CASCADE"), primary_key=True
+    )
+    caso_id: Mapped[int] = mapped_column(
+        ForeignKey("caso_escalamiento.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )

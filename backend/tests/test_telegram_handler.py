@@ -9,20 +9,27 @@ from sqlalchemy import delete, func, select
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.models import (
+    AutorComunicacion,
     Canal,
+    CasoEscalamiento,
+    CasoTelegramNotificacion,
     Cliente,
     Comunicacion,
     DireccionComunicacion,
+    EstadoCaso,
     EstadoIngreso,
     EstadoItem,
     EstadoPedido,
     ModalidadEntrega,
+    MotivoEscalamiento,
     OrigenItem,
     Pedido,
     PedidoItem,
+    PrioridadCaso,
     Rol,
     RolCodigo,
     Usuario,
+    UsuarioCasoActivo,
     UsuarioRol,
 )
 from app.services import telegram_handler
@@ -41,20 +48,83 @@ class FakeTelegram:
 
     def __init__(self):
         self.sent: list[tuple[int, str]] = []
+        self.calls: list[dict] = []
+        self.answered: list[tuple[str, str | None]] = []
+        self._message_id = 100
 
-    def send_message(self, chat_id, text, **_kwargs):
+    def send_message(self, chat_id, text, **kwargs):
+        self._message_id += 1
         self.sent.append((int(chat_id), text))
-        return SimpleNamespace(ok=True, message_id=1, error=None, retriable=False)
+        self.calls.append({
+            "chat_id": int(chat_id),
+            "text": text,
+            "message_id": self._message_id,
+            **kwargs,
+        })
+        return SimpleNamespace(
+            ok=True, message_id=self._message_id, error=None, retriable=False,
+        )
+
+    def answer_callback_query(self, callback_query_id, text=None, **_kwargs):
+        self.answered.append((str(callback_query_id), text))
+        return {"ok": True}
 
     def redact(self, text: str) -> str:
         return text
 
 
-def _update(chat_id: int, text: str) -> dict:
+def _update(
+    chat_id: int,
+    text: str,
+    *,
+    message_id: int = 1,
+    reply_to: int | None = None,
+) -> dict:
+    message = {
+        "message_id": message_id,
+        "chat": {"id": chat_id},
+        "text": text,
+    }
+    if reply_to is not None:
+        message["reply_to_message"] = {"message_id": reply_to}
     return {
         "update_id": uuid.uuid4().int % 2_000_000_000,
-        "message": {"message_id": 1, "chat": {"id": chat_id}, "text": text},
+        "message": message,
     }
+
+
+def _callback_update(chat_id: int, data: str, *, message_id: int = 10) -> dict:
+    return {
+        "update_id": uuid.uuid4().int % 2_000_000_000,
+        "callback_query": {
+            "id": f"cb-{uuid.uuid4().hex[:8]}",
+            "data": data,
+            "message": {
+                "message_id": message_id,
+                "chat": {"id": chat_id},
+            },
+        },
+    }
+
+
+def _crear_caso(
+    db,
+    pedido: Pedido,
+    *,
+    prioridad: PrioridadCaso = PrioridadCaso.ALTA,
+) -> CasoEscalamiento:
+    caso = CasoEscalamiento(
+        pedido_id=pedido.id,
+        motivo=MotivoEscalamiento.RECLAMO,
+        prioridad=prioridad,
+        descripcion="Caso de prueba del bot",
+        fecha_apertura=datetime.utcnow(),
+        estado=EstadoCaso.ABIERTO,
+    )
+    db.add(caso)
+    db.commit()
+    db.refresh(caso)
+    return caso
 
 
 @pytest.fixture(autouse=True)
@@ -431,7 +501,7 @@ def test_notificacion_llega_a_todos_los_operadores(operadores):
 
     notify_operator_new_caso(caso, pedido, telegram=tg, db=db)
 
-    assert {chat for chat, _texto in tg.sent} == {3001, 3002}
+    assert {3001, 3002} <= {chat for chat, _texto in tg.sent}
 
 
 def test_notificacion_incluye_fallback_de_env(operadores):
@@ -451,4 +521,283 @@ def test_notificacion_incluye_fallback_de_env(operadores):
 
     notify_operator_new_caso(caso, pedido, telegram=tg, db=db)
 
-    assert {chat for chat, _texto in tg.sent} == {3001, 3002, 9999}
+    assert {3001, 3002, 9999} <= {chat for chat, _texto in tg.sent}
+
+
+# ---------- Respuesta de operadores a casos ----------
+def test_notificacion_guarda_botones_y_mapeo(operadores, escenario):
+    _db_ops, _usuarios = operadores
+    db, pedido, _cliente = escenario
+    caso = _crear_caso(db, pedido)
+    tg = FakeTelegram()
+
+    notify_operator_new_caso(caso, pedido, telegram=tg, db=db)
+
+    llamada = next(c for c in tg.calls if c["chat_id"] == 3001)
+    assert "inline_keyboard" in llamada["reply_markup"]
+    botones = llamada["reply_markup"]["inline_keyboard"]
+    assert any("Ver caso" in b["text"] for fila in botones for b in fila)
+    assert any("Responder" in b["text"] for fila in botones for b in fila)
+
+    fila = db.scalar(
+        select(CasoTelegramNotificacion).where(
+            CasoTelegramNotificacion.chat_id == "3001",
+            CasoTelegramNotificacion.message_id == llamada["message_id"],
+        )
+    )
+    assert fila is not None
+    assert fila.caso_id == caso.id
+
+
+def test_callback_ver_muestra_datos_y_timeline(operador, escenario):
+    db, usuario = operador
+    db2, pedido, _cliente = escenario
+    usuario.telegram_chat_id = "4001"
+    db.commit()
+    caso = _crear_caso(db2, pedido)
+    tg = FakeTelegram()
+
+    result = handle_telegram_update(
+        db2, _callback_update(4001, f"caso:{caso.id}:ver"), telegram=tg,
+    )
+
+    assert result["handled"] == "callback_case_view"
+    texto = tg.sent[-1][1]
+    assert f"Caso #{caso.id}" in texto
+    assert pedido.codigo in texto
+    assert "Últimos eventos" in texto
+    assert tg.answered
+
+
+def test_callback_responder_y_mensaje_llega_al_cliente(operador, escenario):
+    db, usuario = operador
+    db2, pedido, cliente = escenario
+    usuario.telegram_chat_id = "4002"
+    cliente.telegram_chat_id = "5000"
+    db.commit()
+    db2.commit()
+    caso = _crear_caso(db2, pedido)
+    tg = FakeTelegram()
+
+    handle_telegram_update(
+        db2, _callback_update(4002, f"caso:{caso.id}:responder"), telegram=tg,
+    )
+
+    activo = db2.get(UsuarioCasoActivo, usuario.id)
+    assert activo is not None
+    assert activo.caso_id == caso.id
+
+    result = handle_telegram_update(
+        db2, _update(4002, "Hola, ya estamos revisando tu caso."), telegram=tg,
+    )
+
+    assert result["handled"] == "operator_replied"
+    assert (5000, "Hola, ya estamos revisando tu caso.") in tg.sent
+
+    db2.refresh(caso)
+    assert caso.responsable_id == usuario.id
+    assert caso.estado == EstadoCaso.EN_PROCESO
+    assert caso.fecha_primera_accion is not None
+
+    com = db2.scalar(
+        select(Comunicacion).where(
+            Comunicacion.pedido_id == pedido.id,
+            Comunicacion.direccion == DireccionComunicacion.SALIENTE,
+            Comunicacion.autor == AutorComunicacion.HUMANO,
+        )
+    )
+    assert com is not None
+    assert com.canal == Canal.TELEGRAM
+    assert com.estado_entrega == "SENT"
+    assert com.caso_id == caso.id
+
+
+def test_respuesta_citando_el_aviso_del_caso(operador, escenario):
+    db, usuario = operador
+    db2, pedido, cliente = escenario
+    usuario.telegram_chat_id = "4003"
+    cliente.telegram_chat_id = "5001"
+    db.commit()
+    db2.commit()
+    caso = _crear_caso(db2, pedido)
+    db2.add(CasoTelegramNotificacion(
+        caso_id=caso.id,
+        usuario_id=usuario.id,
+        chat_id="4003",
+        message_id=77,
+    ))
+    db2.commit()
+    tg = FakeTelegram()
+
+    result = handle_telegram_update(
+        db2,
+        _update(4003, "Respuesta citando el aviso", reply_to=77),
+        telegram=tg,
+    )
+
+    assert result["handled"] == "operator_replied"
+    assert (5001, "Respuesta citando el aviso") in tg.sent
+
+
+def test_segundo_operador_no_puede_responder_caso_asignado(operadores, escenario):
+    _db_ops, usuarios = operadores
+    db, pedido, cliente = escenario
+    usuario1, usuario2 = usuarios
+    usuario1.telegram_chat_id = "3001"
+    usuario2.telegram_chat_id = "3002"
+    _db_ops.commit()
+    cliente.telegram_chat_id = "5002"
+    db.commit()
+    caso = _crear_caso(db, pedido)
+    caso.responsable_id = usuario1.id
+    db.commit()
+    tg = FakeTelegram()
+
+    result = handle_telegram_update(
+        db, _update(3002, f"/responder {caso.id} Intento duplicado"), telegram=tg,
+    )
+
+    assert result["handled"] == "operator_reply_rejected"
+    assert result["code"] == "asignado"
+    assert "siendo atendido" in tg.sent[-1][1]
+    assert (5002, "Intento duplicado") not in tg.sent
+
+
+def test_responder_sin_telegram_del_cliente_avisa(operador, escenario):
+    db, usuario = operador
+    db2, pedido, cliente = escenario
+    usuario.telegram_chat_id = "4004"
+    cliente.telegram_chat_id = None
+    db.commit()
+    db2.commit()
+    caso = _crear_caso(db2, pedido)
+    tg = FakeTelegram()
+
+    result = handle_telegram_update(
+        db2, _update(4004, f"/responder {caso.id} Hola"), telegram=tg,
+    )
+
+    assert result["handled"] == "operator_reply_rejected"
+    assert result["code"] == "sin_telegram"
+    assert "Telegram" in tg.sent[-1][1]
+
+
+def test_cerrar_caso_desde_boton(operador, escenario):
+    db, usuario = operador
+    db2, pedido, cliente = escenario
+    usuario.telegram_chat_id = "4005"
+    cliente.telegram_chat_id = "5003"
+    db.commit()
+    db2.commit()
+    caso = _crear_caso(db2, pedido)
+    db2.add(UsuarioCasoActivo(usuario_id=usuario.id, caso_id=caso.id))
+    db2.commit()
+    tg = FakeTelegram()
+
+    result = handle_telegram_update(
+        db2, _callback_update(4005, f"caso:{caso.id}:cerrar"), telegram=tg,
+    )
+
+    assert result["handled"] == "operator_closed"
+    db2.refresh(caso)
+    assert caso.estado == EstadoCaso.CERRADO
+    assert caso.fecha_cierre is not None
+    assert db2.get(UsuarioCasoActivo, usuario.id) is None
+    assert any("fue cerrado" in texto for chat, texto in tg.sent if chat == 5003)
+
+
+def test_comandos_casos_y_detalle(operador, escenario):
+    db, usuario = operador
+    db2, pedido, _cliente = escenario
+    usuario.telegram_chat_id = "4006"
+    db.commit()
+    caso = _crear_caso(db2, pedido)
+    tg = FakeTelegram()
+
+    r1 = handle_telegram_update(db2, _update(4006, "/casos"), telegram=tg)
+    assert r1["handled"] == "operator_cases"
+    assert f"#{caso.id}" in tg.sent[-1][1]
+
+    r2 = handle_telegram_update(
+        db2, _update(4006, f"/caso {caso.id}"), telegram=tg,
+    )
+    assert r2["handled"] == "operator_case"
+    assert "Caso de prueba del bot" in tg.sent[-1][1]
+
+
+def test_salir_limpia_el_caso_activo(operador, escenario):
+    db, usuario = operador
+    db2, pedido, _cliente = escenario
+    usuario.telegram_chat_id = "4007"
+    db.commit()
+    caso = _crear_caso(db2, pedido)
+    db2.add(UsuarioCasoActivo(usuario_id=usuario.id, caso_id=caso.id))
+    db2.commit()
+    tg = FakeTelegram()
+
+    result = handle_telegram_update(db2, _update(4007, "/salir"), telegram=tg)
+
+    assert result["handled"] == "operator_exit"
+    assert db2.get(UsuarioCasoActivo, usuario.id) is None
+
+
+def test_mensaje_del_cliente_se_reenvia_y_operador_responde(operador, escenario):
+    """Chat bidireccional: cliente → operador (aviso) → cliente (respuesta)."""
+    db, usuario = operador
+    db2, pedido, cliente = escenario
+    usuario.telegram_chat_id = "4100"
+    cliente.telegram_chat_id = "5100"
+    db.commit()
+    db2.commit()
+    caso = _crear_caso(db2, pedido)
+    caso.responsable_id = usuario.id
+    db2.commit()
+    tg = FakeTelegram()
+
+    update = _update(5100, "Ya pagué, ¿qué sigue?")
+    result = handle_telegram_update(db2, update, telegram=tg)
+
+    assert result["handled"] == "case_message_forwarded"
+    assert result["caso_id"] == caso.id
+    aviso = next(c for c in tg.calls if c["chat_id"] == 4100)
+    assert "Ya pagué" in aviso["text"]
+    assert "inline_keyboard" in aviso["reply_markup"]
+    # El agente no responde: el mensaje queda en manos del operador.
+    assert all(chat != 5100 for chat, _texto in tg.sent)
+
+    entrada = db2.scalar(
+        select(Comunicacion).where(
+            Comunicacion.pedido_id == pedido.id,
+            Comunicacion.direccion == DireccionComunicacion.ENTRANTE,
+            Comunicacion.whatsapp_message_id == f"tg:{update['update_id']}",
+        )
+    )
+    assert entrada is not None
+    assert entrada.caso_id == caso.id
+    assert entrada.autor == AutorComunicacion.CLIENTE
+
+    # El operador responde citando el aviso y el cliente lo recibe.
+    result2 = handle_telegram_update(
+        db2,
+        _update(4100, "Tu pedido sigue en proceso.", reply_to=aviso["message_id"]),
+        telegram=tg,
+    )
+    assert result2["handled"] == "operator_replied"
+    assert (5100, "Tu pedido sigue en proceso.") in tg.sent
+
+
+def test_mensaje_de_caso_sin_asignar_se_reenvia_a_todos(operadores, escenario):
+    _db_ops, _usuarios = operadores
+    db, pedido, cliente = escenario
+    cliente.telegram_chat_id = "5101"
+    db.commit()
+    _crear_caso(db, pedido)
+    tg = FakeTelegram()
+
+    result = handle_telegram_update(
+        db, _update(5101, "¿Alguien me puede ayudar?"), telegram=tg,
+    )
+
+    assert result["handled"] == "case_message_forwarded"
+    chats = {chat for chat, _texto in tg.sent}
+    assert {3001, 3002} <= chats

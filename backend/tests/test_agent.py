@@ -1,5 +1,6 @@
 """Pruebas del agente IA — clasificación, guardrails y flujo completo."""
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -372,10 +373,31 @@ def test_thread_pedido_inexistente_devuelve_404(client, auth):
     assert r.status_code == 404
 
 
-def test_flujo_completo_agente_escala_y_humano_responde(client, auth, db):
+def test_flujo_completo_agente_escala_y_humano_responde(client, auth, db, monkeypatch):
     """Cliente reclama → agente clasifica y escala → asesor responde →
     el caso pasa a EN_PROCESO y el agente cede el paso a la persona."""
     ped = _mk_pedido(db, suffix="sim2")
+    ped.cliente.telegram_chat_id = "990001"
+    db.commit()
+
+    class FakeTelegram:
+        enabled = True
+        operator_chat_id = ""
+
+        def __init__(self):
+            self.sent = []
+
+        def send_message(self, chat_id, text, **_kwargs):
+            self.sent.append((str(chat_id), text))
+            return SimpleNamespace(ok=True, message_id=1, error=None, retriable=False)
+
+        def redact(self, text):
+            return text
+
+    telegram = FakeTelegram()
+    monkeypatch.setattr(
+        "app.services.caso_service.TelegramService", lambda: telegram
+    )
     try:
         # 1) Reclamo: el agente lo detecta, escala y abre caso
         r = client.post(
@@ -405,6 +427,7 @@ def test_flujo_completo_agente_escala_y_humano_responde(client, auth, db):
         assert body["caso_id"] == caso_id
         assert body["caso_estado"] == "EN_PROCESO"
         assert body["aviso"]
+        assert ("990001", "Hola, ya estamos revisando tu caso.") in telegram.sent
 
         # 3) El agente cede el paso: no responde mientras la persona esté activa
         r = client.post(
