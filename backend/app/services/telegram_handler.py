@@ -616,30 +616,50 @@ def _handle_operator_command(
     external_id: str | None,
 ) -> dict[str, Any] | None:
     if _command_args(text, "/casos") is not None:
-        _log_comando(db, chat_id, "/casos", None, None, external_id)
-        _reply(db, tg, chat_id, _format_casos(db))
+        _log_comando(
+            db, chat_id, "/casos", None, None, external_id,
+            usuario_id=usuario.id,
+        )
+        _reply(db, tg, chat_id, _format_casos(db), usuario_id=usuario.id)
         return {"handled": "operator_cases", "chat_id": chat_id}
 
     args = _command_args(text, "/caso")
     if args is not None:
-        _log_comando(db, chat_id, "/caso [id]", None, None, external_id)
+        _log_comando(
+            db, chat_id, "/caso [id]", None, None, external_id,
+            usuario_id=usuario.id,
+        )
         caso_id = _parse_caso_id(args)
         if caso_id is None:
-            _reply(db, tg, chat_id, _OPERATOR_COMMAND_HELP["/caso"])
+            _reply(
+                db, tg, chat_id, _OPERATOR_COMMAND_HELP["/caso"],
+                usuario_id=usuario.id,
+            )
             return {"handled": "operator_case_help", "chat_id": chat_id}
         caso = db.get(CasoEscalamiento, caso_id)
         if caso is None:
-            _reply(db, tg, chat_id, f"No encontré el caso #{caso_id}.")
+            _reply(
+                db, tg, chat_id, f"No encontré el caso #{caso_id}.",
+                usuario_id=usuario.id,
+            )
             return {"handled": "operator_case_not_found", "chat_id": chat_id}
-        _reply(db, tg, chat_id, _format_caso(db, caso))
+        _reply(
+            db, tg, chat_id, _format_caso(db, caso), usuario_id=usuario.id,
+        )
         return {"handled": "operator_case", "chat_id": chat_id, "caso_id": caso_id}
 
     args = _command_args(text, "/responder")
     if args is not None:
-        _log_comando(db, chat_id, "/responder [id] [mensaje]", None, None, external_id)
+        _log_comando(
+            db, chat_id, "/responder [id] [mensaje]", None, None, external_id,
+            usuario_id=usuario.id,
+        )
         partes = args.split(maxsplit=1)
         if len(partes) < 2 or not partes[0].isdigit() or not partes[1].strip():
-            _reply(db, tg, chat_id, _OPERATOR_COMMAND_HELP["/responder"])
+            _reply(
+                db, tg, chat_id, _OPERATOR_COMMAND_HELP["/responder"],
+                usuario_id=usuario.id,
+            )
             return {"handled": "operator_reply_help", "chat_id": chat_id}
         caso_id = int(partes[0])
         contenido = partes[1].strip()
@@ -647,17 +667,30 @@ def _handle_operator_command(
 
     args = _command_args(text, "/cerrar")
     if args is not None:
-        _log_comando(db, chat_id, "/cerrar [id]", None, None, external_id)
+        _log_comando(
+            db, chat_id, "/cerrar [id]", None, None, external_id,
+            usuario_id=usuario.id,
+        )
         caso_id = _parse_caso_id(args)
         if caso_id is None:
-            _reply(db, tg, chat_id, _OPERATOR_COMMAND_HELP["/cerrar"])
+            _reply(
+                db, tg, chat_id, _OPERATOR_COMMAND_HELP["/cerrar"],
+                usuario_id=usuario.id,
+            )
             return {"handled": "operator_close_help", "chat_id": chat_id}
         return _close_case(db, tg, chat_id, usuario, caso_id)
 
     if _command_args(text, "/salir") is not None:
-        _log_comando(db, chat_id, "/salir", None, None, external_id)
+        _log_comando(
+            db, chat_id, "/salir", None, None, external_id,
+            usuario_id=usuario.id,
+        )
         _clear_active_case(db, usuario)
-        _reply(db, tg, chat_id, "✅ Saliste del modo respuesta. Usa /casos para volver.")
+        _reply(
+            db, tg, chat_id,
+            "✅ Saliste del modo respuesta. Usa /casos para volver.",
+            usuario_id=usuario.id,
+        )
         return {"handled": "operator_exit", "chat_id": chat_id}
 
     return None
@@ -676,7 +709,9 @@ def _send_operator_reply(
             db, caso_id, contenido, usuario_id=usuario.id, telegram=tg,
         )
     except CasoError as exc:
-        _reply(db, tg, chat_id, f"⚠️ {exc.message}")
+        _reply(
+            db, tg, chat_id, f"⚠️ {exc.message}", usuario_id=usuario.id,
+        )
         return {
             "handled": "operator_reply_rejected",
             "chat_id": chat_id,
@@ -692,6 +727,7 @@ def _send_operator_reply(
             f"✅ Enviado a {cliente.nombre if cliente else 'el cliente'} · "
             f"Caso #{caso.id}.\n"
             "Puedes seguir escribiendo para responder al mismo caso o usar /salir.",
+            usuario_id=usuario.id,
         )
     else:
         _reply(
@@ -699,6 +735,7 @@ def _send_operator_reply(
             f"⚠️ El mensaje quedó registrado pero no se pudo entregar: "
             f"{envio.error or 'error desconocido'}\n"
             "Revisa la vinculación de Telegram del cliente e inténtalo de nuevo.",
+            usuario_id=usuario.id,
         )
     return {
         "handled": "operator_replied",
@@ -721,7 +758,9 @@ def _close_case(
             db, caso_id, usuario_id=usuario.id, telegram=tg,
         )
     except CasoError as exc:
-        _reply(db, tg, chat_id, f"⚠️ {exc.message}")
+        _reply(
+            db, tg, chat_id, f"⚠️ {exc.message}", usuario_id=usuario.id,
+        )
         return {
             "handled": "operator_close_rejected",
             "chat_id": chat_id,
@@ -729,7 +768,10 @@ def _close_case(
         }
 
     _clear_active_case(db, usuario)
-    _reply(db, tg, chat_id, f"✅ Caso #{caso.id} cerrado.")
+    _reply(
+        db, tg, chat_id, f"✅ Caso #{caso.id} cerrado.",
+        usuario_id=usuario.id,
+    )
     return {"handled": "operator_closed", "chat_id": chat_id, "caso_id": caso.id}
 
 
