@@ -9,8 +9,9 @@ export type Origen = "STOCK_TRUJILLO" | "IMPORTACION";
 export type EstadoItem = "PENDIENTE" | "EN_PROCESO" | "LISTO_PARA_ENTREGA"
   | "ENTREGADO" | "CON_OBSERVACIONES";
 export type EstadoHito = "PENDIENTE" | "EN_PROCESO" | "COMPLETADO" | "ATRASADO" | "OMITIDO";
-export type Canal = "WHATSAPP" | "EMAIL" | "WEB";
+export type Canal = "WHATSAPP" | "EMAIL" | "WEB" | "TELEGRAM";
 export type DireccionCom = "ENTRANTE" | "SALIENTE";
+export type ClaseComunicacion = "CLIENTE" | "OPERATIVO";
 export type TipoEntrega = "COMPLETA" | "PARCIAL";
 export type EstadoEntrega = "PROGRAMADA" | "EN_RUTA" | "ENTREGADA" | "FALLIDA" | "REPROGRAMADA";
 export type ResultadoConformidad = "CONFORME" | "CON_OBSERVACIONES";
@@ -85,6 +86,7 @@ export interface ConformidadItemIn {
 
 export interface Comunicacion {
   id: number; pedido_id?: number | null; direccion: DireccionCom; canal: Canal;
+  clase: ClaseComunicacion;
   contenido: string; intencion_detectada?: string | null;
   sentimiento?: string | null; autor: string; escalado: boolean; fecha: string;
 }
@@ -108,6 +110,14 @@ export interface Caso {
   fecha_apertura: string; fecha_primera_accion?: string | null;
   responsable_id?: number | null; estado: EstadoCaso;
   fecha_cierre?: string | null;
+}
+
+export interface CasoDetalle extends Caso {
+  responsable_nombre?: string | null;
+  pedido_codigo: string;
+  cliente_nombre: string;
+  cliente_telegram_vinculado: boolean;
+  puede_responder: boolean;
 }
 
 export interface Usuario {
@@ -159,7 +169,8 @@ export interface KpiSnapshot {
 
 // ---- Línea de tiempo (Fase H) ----
 export type TipoEventoTimeline =
-  | "pedido" | "hito" | "mensaje" | "caso" | "imprevisto" | "entrega" | "alerta";
+  | "pedido" | "hito" | "mensaje" | "operativo" | "caso" | "imprevisto"
+  | "entrega" | "alerta";
 
 export interface TimelineEvento {
   fecha: string;
@@ -175,6 +186,7 @@ export interface TimelineEvento {
 export interface TimelineResumen {
   mensajes: number;
   mensajes_clave: number;
+  mensajes_operativos: number;
   hitos_atrasados: number;
   casos_abiertos: number;
   imprevistos_abiertos: number;

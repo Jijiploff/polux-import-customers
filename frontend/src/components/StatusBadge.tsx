@@ -16,6 +16,9 @@ const PALETTE: Record<string, { bg: string; fg: string }> = {
   ATRASADO: { bg: "#fee2e2", fg: "#991b1b" },
   OMITIDO: { bg: "#e5e7eb", fg: "#4b5563" },
   CON_OBSERVACIONES: { bg: "#fee2e2", fg: "#991b1b" },
+  // Comunicaciones
+  CLIENTE: { bg: "#dcfce7", fg: "#166534" },
+  OPERATIVO: { bg: "#e2e8f0", fg: "#334155" },
   // Casos
   ABIERTO: { bg: "#fef9c3", fg: "#854d0e" },
   ABIERTA: { bg: "#fef9c3", fg: "#854d0e" },

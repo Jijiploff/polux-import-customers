@@ -28,6 +28,7 @@ from app.models import (
     Alerta,
     AutorComunicacion,
     CasoEscalamiento,
+    ClaseComunicacion,
     Comunicacion,
     Entrega,
     EstadoAlerta,
@@ -153,20 +154,30 @@ def _eventos_mensajes(
 ) -> list[TimelineEvent]:
     stmt = select(Comunicacion).where(Comunicacion.pedido_id == pedido_id)
     if not incluir_todos:
-        # Eventos clave: quejas/escalamientos, asesor humano y avisos con
-        # plantilla (el chat completo se ve en el hilo del simulador).
+        # Eventos clave: solo conversación real con el cliente. Los mensajes
+        # operativos quedan en la auditoría y aparecen con `incluir_mensajes`.
         stmt = stmt.where(
+            Comunicacion.clase == ClaseComunicacion.CLIENTE,
             (Comunicacion.autor == AutorComunicacion.HUMANO)
             # NOTA: en SQL Server `IS 1` no es válido; `== True` → `= 1`.
             | (Comunicacion.escalado == True)  # noqa: E712
             | (Comunicacion.plantilla_id.is_not(None))
-            | (Comunicacion.sentimiento == Sentimiento.NEGATIVO)
+            | (Comunicacion.sentimiento == Sentimiento.NEGATIVO),
         )
     msgs = db.scalars(
         stmt.options(joinedload(Comunicacion.plantilla)).order_by(Comunicacion.fecha)
     ).all()
     eventos: list[TimelineEvent] = []
     for m in msgs:
+        if m.clase == ClaseComunicacion.OPERATIVO:
+            eventos.append(_ev(
+                m.fecha, "operativo", "Mensaje operativo",
+                detalle=_corto(m.contenido),
+                ref_tipo="comunicacion", ref_id=m.id,
+                autor=m.autor.value if m.autor else None,
+            ))
+            continue
+
         criticidad = "INFO"
         if m.autor == AutorComunicacion.HUMANO:
             titulo = "Respuesta del asesor"
@@ -312,12 +323,20 @@ def _resumen(db: Session, pedido_id: int) -> TimelineResumen:
     """Contadores para la cabecera (contexto rápido al responder)."""
     mensajes = db.scalar(
         select(func.count()).select_from(Comunicacion).where(
-            Comunicacion.pedido_id == pedido_id
+            Comunicacion.pedido_id == pedido_id,
+            Comunicacion.clase == ClaseComunicacion.CLIENTE,
+        )
+    ) or 0
+    mensajes_operativos = db.scalar(
+        select(func.count()).select_from(Comunicacion).where(
+            Comunicacion.pedido_id == pedido_id,
+            Comunicacion.clase == ClaseComunicacion.OPERATIVO,
         )
     ) or 0
     mensajes_clave = db.scalar(
         select(func.count()).select_from(Comunicacion).where(
             Comunicacion.pedido_id == pedido_id,
+            Comunicacion.clase == ClaseComunicacion.CLIENTE,
             (
                 (Comunicacion.autor == AutorComunicacion.HUMANO)
                 # NOTA: en SQL Server `IS 1` no es válido; `== True` → `= 1`.
@@ -356,6 +375,7 @@ def _resumen(db: Session, pedido_id: int) -> TimelineResumen:
     return TimelineResumen(
         mensajes=mensajes,
         mensajes_clave=mensajes_clave,
+        mensajes_operativos=mensajes_operativos,
         hitos_atrasados=hitos_atrasados,
         casos_abiertos=casos_abiertos,
         imprevistos_abiertos=imprevistos_abiertos,
@@ -374,10 +394,13 @@ def build_timeline(
     limit: int = 200,
 ) -> TimelineRead:
     """Construye la línea de tiempo fusionada y ordenada (fecha desc)."""
+    # Si el operador pide explícitamente el tipo `operativo`, hay que leer
+    # todos los mensajes: por defecto solo se listan los eventos clave.
+    incluir_todos = incluir_mensajes or bool(tipos and "operativo" in tipos)
     eventos: list[TimelineEvent] = []
     eventos.extend(_eventos_pedido(pedido))
     eventos.extend(_eventos_hitos(db, pedido.id))
-    eventos.extend(_eventos_mensajes(db, pedido.id, incluir_todos=incluir_mensajes))
+    eventos.extend(_eventos_mensajes(db, pedido.id, incluir_todos=incluir_todos))
     eventos.extend(_eventos_casos(db, pedido.id))
     eventos.extend(_eventos_imprevistos(db, pedido.id))
     eventos.extend(_eventos_entregas(db, pedido.id))

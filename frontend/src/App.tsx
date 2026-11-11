@@ -19,7 +19,6 @@ import { ReglasPage } from "./pages/admin/ReglasPage";
 import { CatalogosPage } from "./pages/admin/CatalogosPage";
 import { AdminOpsPage } from "./pages/admin/AdminOpsPage";
 import { AgentePage } from "./pages/agente/AgentePage";
-import { SimuladorPage } from "./pages/simulador/SimuladorPage";
 
 export default function App() {
   return (
@@ -38,14 +37,6 @@ export default function App() {
           <Route path="/pedidos/:id" element={<PedidoDetailPage />} />
           <Route path="/comunicaciones" element={<ComunicacionesPage />} />
           <Route path="/agente" element={<AgentePage />} />
-          <Route
-            path="/simulador"
-            element={
-              <RequireRole roles={["ADMIN", "OPERADOR"]}>
-                <SimuladorPage />
-              </RequireRole>
-            }
-          />
           <Route path="/alertas" element={<AlertasPage />} />
           <Route path="/casos" element={<CasosPage />} />
           <Route path="/imprevistos" element={<ImprevistosPage />} />

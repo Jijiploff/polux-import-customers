@@ -22,7 +22,7 @@
 10. [Administración (solo Admin)](#10-administración-solo-admin)
 11. [Qué puede ver cada rol](#11-puede-ver-cada-rol)
 12. [Hablar con el agente IA](#12-hablar-con-el-agente-ia)
-13. [Practicar en el simulador de WhatsApp](#13-practicar-en-el-simulador-de-whatsapp)
+13. [Responder casos desde la plataforma](#13-responder-casos-desde-la-plataforma)
 14. [Preguntas frecuentes](#14-preguntas-frecuentes)
 
 ---
@@ -198,11 +198,22 @@ reclamos, retrasos graves, etc.
    ![Casos](capturas/08-casos.png)
 
 2. Revisa los casos **Abiertos** (filtro superior).
-3. En cuanto hables con el cliente o tomes la primera medida, haz clic
-   en **Primera acción** — el sistema registra *cuándo* respondiste
-   (esto mide el indicador *Tiempo respuesta escalados*).
-4. Cuando el problema quede resuelto, haz clic en **Cerrar** y escribe
-   lo que se hizo.
+3. Haz clic en **Responder** para ver la conversación con el cliente y
+   escribirle sin salir de la plataforma. El **primer operador** que
+   responde queda como responsable del caso y los demás ya no podrán
+   responderlo (verás el aviso *«Otro operador ya tomó este caso»*).
+4. Si el cliente no tiene Telegram vinculado, la plataforma te avisará y
+   no enviará nada: pídele que escriba al bot con su **código de pedido +
+   DNI** y vuelve a intentarlo.
+5. La **primera respuesta** registra automáticamente *cuándo* atendiste
+   (esto mide el indicador *Tiempo respuesta escalados*). También puedes
+   marcarla manualmente con **Primera acción**.
+6. Cuando el problema quede resuelto, haz clic en **Cerrar**; el caso
+   pasa a cerrado y se avisa al cliente por Telegram si está vinculado.
+
+> 🔒 Los mensajes internos del sistema (comandos, avisos a operadores,
+> confirmaciones) no se mezclan con la conversación del cliente. Puedes
+> verlos en **Comunicaciones** filtrando por clase **Operativo**.
 
 > 🕐 Lo importante es registrar la **primera acción** rápido: el
 > indicador del panel cuenta las horas desde que se abrió el caso.
@@ -367,7 +378,7 @@ minutos:
 | Pedidos, hitos, entregas | ✅ | ✅ | ❌ |
 | Alertas, casos, imprevistos, comunicaciones | ✅ | ✅ | ❌ |
 | Agente IA (probar el asistente) | ✅ | ✅ | ❌ |
-| Simulador WhatsApp (practicar con el agente) | ✅ | ✅ | ❌ |
+| Responder casos desde la plataforma | ✅ | ✅ | ❌ |
 | Usuarios, reglas, catálogos, operaciones | ✅ | ❌ | ❌ |
 
 El menú muestra solo las opciones a las que tienes acceso. Si necesitas
@@ -389,8 +400,8 @@ Disponible para **Administradores** y **Operadores** (menú
 ### 12.1 Probar una conversación
 
 1. En el menú, haz clic en **Agente IA**.
-2. En **Simulador de conversación** puedes elegir el canal (WhatsApp,
-   Email o Web) y, si quieres, asociar un pedido.
+2. En **Probar conversación** puedes elegir el canal (WhatsApp, Email,
+   Web o Telegram) y, si quieres, asociar un pedido.
 3. Escribe un mensaje como si fueras el cliente — por ejemplo
    *«¿Cuándo llega mi pedido?»* — y haz clic en **Enviar mensaje**.
 4. Verás la respuesta del agente y, debajo, cómo lo interpretó:
@@ -400,9 +411,8 @@ Disponible para **Administradores** y **Operadores** (menú
 Si el asunto es grave (un reclamo, por ejemplo), el agente lo marca
 como **escalado** y crea un **caso** para que lo atienda una persona.
 
-> 💡 ¿Prefieres practicar en una pantalla con **burbujas de WhatsApp**,
-> lista de chats y respuesta humana? Pasa a la sección
-> [13 · Practicar en el simulador de WhatsApp](#13-practicar-en-el-simulador-de-whatsapp).
+> 💡 ¿Quieres responder a un cliente real? Pasa a la sección
+> [13 · Responder casos desde la plataforma](#13-responder-casos-desde-la-plataforma).
 
 ### 12.2 Ver el resumen
 
@@ -424,80 +434,48 @@ en el sistema. Sirve para comprobar cómo reaccionaría.
 
 ---
 
-## 13. Practicar en el simulador de WhatsApp
+## 13. Responder casos desde la plataforma
 
-**¿Qué es?** Una pantalla que imita una conversación real de WhatsApp
-(burbujas y lista de chats). Sirve para probar al agente de punta a
-punta y para que una persona responda desde la plataforma cuando el
-agente deriva un caso. La pantalla se adapta al tamaño de la ventana:
-si es angosta, la lista de chats queda arriba y el hilo debajo.
+**¿Qué es?** La forma de atender a un cliente sin usar tu Telegram
+personal: desde **Casos → Responder** ves la conversación, escribes la
+respuesta y el sistema la entrega por el canal configurado (Telegram).
+Es el mismo flujo que responder desde el bot, con la misma asignación y
+auditoría.
 
-Disponible para **Administradores** y **Operadores** (menú
-**Simulador WhatsApp**):
+Disponible para **Administradores** y **Operadores**:
 
-![Simulador de WhatsApp](capturas/19-simulador-whatsapp.png)
+![Casos](capturas/08-casos.png)
 
-> 📖 **Datos de ejemplo:** la lista ya trae **10 conversaciones** para
-> practicar: 4 con **quejas** (daños, demoras y cobros incorrectos que el
-> agente deriva a una persona), 4 de **seguimiento normal** del pedido y
-> 2 **positivas** (agradecimientos y felicitaciones). Así puedes ver
-> seguidos los tres casos de uso reales sin tener que escribirlos todos.
+### 13.1 Abrir y responder un caso
 
-### 13.1 Escribir como si fueras el cliente
+1. En el menú, haz clic en **Casos** y localiza el caso **Abierto**.
+2. Pulsa **Responder**. Se abre la ficha con:
+   - el pedido y el nombre del cliente;
+   - el **responsable** actual (o *sin asignar*);
+   - si el cliente tiene **Telegram vinculado**;
+   - el hilo de la conversación (solo mensajes del cliente y respuestas).
+3. Escribe en **Respuesta al cliente** y pulsa **Enviar respuesta**.
+4. El **primer operador** que responde queda como responsable y el caso
+   pasa a **En proceso**. Si otro operador intenta responder después,
+   verá *«Otro operador ya tomó este caso»* y no podrá enviar.
+5. Usa **Ver la línea de tiempo del pedido** dentro de la misma ventana
+   para revisar hitos, casos, imprevistos, entregas y alertas.
 
-1. En el menú, haz clic en **Simulador WhatsApp**.
-2. En la lista de la izquierda elige un chat (cada pedido es una
-   conversación con su cliente) o **busca** por nombre o código.
-3. Deja seleccionado el modo **Cliente** y escribe un mensaje — por
-   ejemplo *«¿Dónde está mi pedido? ¿Cuándo llega?»* — o toca una de las
-   **Ideas** rápidas. Pulsa **Enviar** (o la tecla Enter).
-4. Aparece *«El agente está escribiendo…»* y, al terminar, su respuesta
-   en burbuja verde. Debajo verás la **Decisión del agente**: la
-   intención detectada, el sentimiento, la confianza, con qué motor
-   respondió y si derivó el caso a una persona.
+### 13.2 Si el cliente no tiene Telegram
 
-### 13.2 Cuando el agente deriva el caso a una persona
+La ficha mostrará **Telegram del cliente: sin vincular ⚠️** y el botón
+de envío quedará deshabilitado. Para vincularlo, el cliente debe escribir
+al bot con su **código de pedido + DNI** (por ejemplo
+`PD-2025-0005 70000004`). Mientras no lo haga, la plataforma no puede
+entregar la respuesta; el intento queda registrado como **Operativo**
+para auditoría, pero el caso **no** se asigna.
 
-Si el mensaje es un reclamo (o el agente no está seguro), verás una
-banda naranja en la conversación:
+### 13.3 Cerrar el caso
 
-> ⚠️ El agente derivó este caso a una persona · Caso #1128 · motivo
-> RECLAMO · prioridad ALTA · estado EN_PROCESO · ver casos
-
-1. Haz clic en **Responder como asesor** (o en el botón **Asesor
-   humano** de abajo).
-2. Escribe la respuesta tal como la diría un asesor y pulsa **Enviar**.
-3. Tu mensaje aparece con la etiqueta **Asesor humano (tú)** y queda
-   registrado con tu nombre: nadie más puede firmarlo por ti.
-4. En la lista de chats verás el sello **Asesor activo** y, si había un
-   caso abierto, el aviso *«Caso #… en proceso (registrada la primera
-   respuesta humana)»*.
-
-Mientras una persona esté respondiendo, **el agente se aparta** y no
-responde (para no pisar a quien está atendiendo); vuelve a actuar
-pasados unos minutos.
-
-> 📌 Todo lo que escribas queda en **Comunicaciones** y, si hay caso, en
-> el historial del caso: es exactamente la misma información que ve tu
-> equipo en operación.
-
-### 13.3 Ver el historial del pedido en la conversación
-
-Puedes ver la historia del pedido sin salir del chat:
-
-1. Pulsa el botón **📋 Historial** del encabezado del chat (a la
-   derecha del nombre del cliente).
-2. Se abre la **línea de tiempo** del pedido arriba de los mensajes:
-   ingreso, hitos completados o atrasados, casos, imprevistos,
-   entregas, alertas y los mensajes clave — los más recientes
-   primero. Los chips de arriba resumen de un vistazo: mensajes,
-   casos abiertos, hitos atrasados, imprevistos y alertas.
-3. Marca **Ver todos los mensajes e interacciones** si quieres ver
-   también las conversaciones normales (la lista se recarga).
-4. Vuelve a pulsar **📋 Historial** para cerrarlo y recuperar todo el
-   espacio de los mensajes.
-
-![Historial del pedido en el simulador](capturas/20-historial-simulador.png)
+Cuando el problema esté resuelto, pulsa **Cerrar** en la fila del caso.
+El caso pasa a **Cerrado** y, si el cliente tiene Telegram, recibe el
+aviso de cierre. Todo queda en la línea de tiempo y en
+**Comunicaciones**.
 
 ---
 

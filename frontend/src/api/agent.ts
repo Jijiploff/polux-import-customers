@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Canal } from "../types/domain";
+import type { Canal, ClaseComunicacion } from "../types/domain";
 
 export interface AgentClassification {
   intent: string;
@@ -40,7 +40,7 @@ export interface ClassifyTestResult {
   provider_used: string;
 }
 
-// ----- Simulador de chat WhatsApp (Fase G2) -----
+// ----- Bandeja e hilo de conversaciones -----
 export type AutorCom = "CLIENTE" | "AGENTE" | "HUMANO";
 
 export interface ThreadMessage {
@@ -48,6 +48,7 @@ export interface ThreadMessage {
   direccion: "ENTRANTE" | "SALIENTE";
   autor: AutorCom;
   canal: Canal;
+  clase: ClaseComunicacion;
   contenido: string;
   fecha: string;
   intencion_detectada?: string | null;
@@ -94,8 +95,11 @@ export const agentApi = {
   classify: (contenido: string) =>
     api.post<ClassifyTestResult>("/agent/test/classify", { contenido }),
   chats: () => api.get<ChatResumen[]>("/agent/chats"),
-  thread: (pedidoId: number) =>
-    api.get<ThreadMessage[]>(`/agent/thread?pedido_id=${pedidoId}`),
+  thread: (pedidoId: number, incluirOperativos = false) => {
+    const q = new URLSearchParams({ pedido_id: String(pedidoId) });
+    if (incluirOperativos) q.set("incluir_operativos", "true");
+    return api.get<ThreadMessage[]>(`/agent/thread?${q.toString()}`);
+  },
   humanReply: (pedido_id: number, contenido: string) =>
     api.post<HumanReplyResult>("/agent/human-reply", { pedido_id, contenido }),
 };

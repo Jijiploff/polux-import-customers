@@ -7,13 +7,16 @@ import { Loading } from "../../components/Loading";
 import { Modal } from "../../components/Modal";
 import { FormField } from "../../components/FormField";
 import { useAuth } from "../../auth/AuthContext";
-import type { Canal, Comunicacion, DireccionCom, Pedido } from "../../types/domain";
+import type {
+  Canal, ClaseComunicacion, Comunicacion, DireccionCom, Pedido,
+} from "../../types/domain";
 
 export function ComunicacionesPage() {
   const { hasRole } = useAuth();
   const [rows, setRows] = useState<Comunicacion[] | null>(null);
   const [page, setPage] = useState(1);
   const [pedidoId, setPedidoId] = useState<string>("");
+  const [clase, setClase] = useState<ClaseComunicacion | "">("");
 
   // Formulario de nuevo mensaje
   const [showForm, setShowForm] = useState(false);
@@ -22,14 +25,19 @@ export function ComunicacionesPage() {
   const [fDir, setFDir] = useState<DireccionCom>("SALIENTE");
   const [fCanal, setFCanal] = useState<Canal>("WHATSAPP");
   const [fAutor, setFAutor] = useState("HUMANO");
+  const [fClase, setFClase] = useState<ClaseComunicacion>("CLIENTE");
   const [fContenido, setFContenido] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
-    comunicacionesApi.list({ page, size: 50, pedido_id: pedidoId ? Number(pedidoId) : undefined })
+    comunicacionesApi.list({
+      page, size: 50,
+      pedido_id: pedidoId ? Number(pedidoId) : undefined,
+      clase: clase || undefined,
+    })
       .then(setRows).catch(() => setRows([]));
-  }, [page, pedidoId]);
+  }, [page, pedidoId, clase]);
 
   async function openForm() {
     setShowForm(true);
@@ -56,6 +64,7 @@ export function ComunicacionesPage() {
         direccion: fDir,
         canal: fCanal,
         autor: fAutor,
+        clase: fClase,
         contenido: fContenido.trim(),
       });
       setShowForm(false);
@@ -77,9 +86,19 @@ export function ComunicacionesPage() {
           <button onClick={openForm}>+ Nuevo mensaje</button>
         )}
       </div>
-      <div style={{ marginBottom: "1rem" }}>
+      <div style={{ marginBottom: "1rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
         <input placeholder="Filtrar por pedido ID" value={pedidoId}
           onChange={(e) => { setPedidoId(e.target.value); setPage(1); }} />
+        <label>Clase:&nbsp;
+          <select
+            value={clase}
+            onChange={(e) => { setClase(e.target.value as ClaseComunicacion | ""); setPage(1); }}
+          >
+            <option value="">Todas</option>
+            <option value="CLIENTE">Cliente</option>
+            <option value="OPERATIVO">Operativo</option>
+          </select>
+        </label>
       </div>
       <Modal open={showForm} title="Registrar comunicación" onClose={() => setShowForm(false)}>
         <form onSubmit={enviar}>
@@ -103,6 +122,7 @@ export function ComunicacionesPage() {
                 <option value="WHATSAPP">WhatsApp</option>
                 <option value="EMAIL">Email</option>
                 <option value="WEB">Web</option>
+                <option value="TELEGRAM">Telegram</option>
               </select>
             </FormField>
             <FormField label="Quién escribe">
@@ -110,6 +130,15 @@ export function ComunicacionesPage() {
                 <option value="HUMANO">Persona (operador)</option>
                 <option value="CLIENTE">Cliente</option>
                 <option value="AGENTE">Agente IA</option>
+              </select>
+            </FormField>
+            <FormField label="Clase">
+              <select
+                value={fClase}
+                onChange={(e) => setFClase(e.target.value as ClaseComunicacion)}
+              >
+                <option value="CLIENTE">Cliente (conversación)</option>
+                <option value="OPERATIVO">Operativo (interno)</option>
               </select>
             </FormField>
           </div>
@@ -140,6 +169,8 @@ export function ComunicacionesPage() {
               { key: "dir", header: "Dir.",
                 render: (c) => <StatusBadge value={c.direccion} /> },
               { key: "canal", header: "Canal", render: (c) => c.canal },
+              { key: "clase", header: "Clase",
+                render: (c) => <StatusBadge value={c.clase} /> },
               { key: "intent", header: "Intención",
                 render: (c) => c.intencion_detectada ?? "—" },
               { key: "cont", header: "Contenido",

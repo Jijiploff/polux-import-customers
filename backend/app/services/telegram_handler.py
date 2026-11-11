@@ -30,6 +30,7 @@ from app.models import (
     Canal,
     CasoEscalamiento,
     CasoTelegramNotificacion,
+    ClaseComunicacion,
     Cliente,
     Comunicacion,
     DireccionComunicacion,
@@ -392,6 +393,8 @@ def _log_comando(
     cliente: Cliente | None,
     pedido: Pedido | None,
     external_id: str | None,
+    *,
+    usuario_id: int | None = None,
 ) -> Comunicacion:
     com = Comunicacion(
         pedido_id=pedido.id if pedido else None,
@@ -399,6 +402,8 @@ def _log_comando(
         canal=Canal.TELEGRAM,
         contenido=contenido,
         autor=AutorComunicacion.CLIENTE,
+        clase=ClaseComunicacion.OPERATIVO,
+        usuario_id=usuario_id,
         escalado=False,
         whatsapp_message_id=external_id,
         fecha=datetime.utcnow(),
@@ -417,6 +422,8 @@ def _log_saliente_comando(
     pedido: Pedido | None,
     estado: str,
     error: str | None = None,
+    *,
+    usuario_id: int | None = None,
 ) -> Comunicacion:
     com = Comunicacion(
         pedido_id=pedido.id if pedido else None,
@@ -424,6 +431,8 @@ def _log_saliente_comando(
         canal=Canal.TELEGRAM,
         contenido=contenido,
         autor=AutorComunicacion.AGENTE,
+        clase=ClaseComunicacion.OPERATIVO,
+        usuario_id=usuario_id,
         escalado=False,
         estado_entrega=estado,
         error_envio=(error or None) and error[:500],
@@ -445,13 +454,14 @@ def _reply(
     pedido: Pedido | None = None,
     *,
     reply_markup: dict[str, Any] | None = None,
+    usuario_id: int | None = None,
 ):
     """Envía una respuesta y la registra en `comunicacion`."""
     envio = tg.send_message(chat_id, contenido, reply_markup=reply_markup)
     _log_saliente_comando(
         db, chat_id, contenido, cliente, pedido,
         "SENT" if envio.ok else ("FAILED_RETRY" if envio.retriable else "FAILED"),
-        envio.error,
+        envio.error, usuario_id=usuario_id,
     )
     return envio
 
@@ -830,6 +840,7 @@ def _forward_client_message_to_case(
         canal=Canal.TELEGRAM,
         contenido=contenido,
         autor=AutorComunicacion.CLIENTE,
+        clase=ClaseComunicacion.CLIENTE,
         escalado=True,
         caso_id=caso.id,
         whatsapp_message_id=external_id,
@@ -848,9 +859,32 @@ def _forward_client_message_to_case(
     )
     reply_markup = _client_message_markup(caso.id)
     mappings: list[CasoTelegramNotificacion] = []
+    operativos: list[Comunicacion] = []
     enviados = 0
     for chat_id, usuario_id in destinatarios:
         envio = tg.send_message(chat_id, texto, reply_markup=reply_markup)
+        estado_entrega = "SENT" if envio.ok else (
+            "FAILED_RETRY" if envio.retriable else "FAILED"
+        )
+        # Se audita también el intento fallido: todo aviso interno queda
+        # registrado como OPERATIVO.
+        operativos.append(Comunicacion(
+            pedido_id=pedido.id,
+            direccion=DireccionComunicacion.SALIENTE,
+            canal=Canal.TELEGRAM,
+            contenido=texto,
+            autor=AutorComunicacion.AGENTE,
+            clase=ClaseComunicacion.OPERATIVO,
+            usuario_id=usuario_id,
+            escalado=False,
+            caso_id=caso.id,
+            estado_entrega=estado_entrega,
+            error_envio=(
+                (envio.error or "")[:500] if not envio.ok else None
+            ),
+            enviado_en=datetime.utcnow() if envio.ok else None,
+            fecha=datetime.utcnow(),
+        ))
         if not envio.ok:
             logger.warning(
                 "client_message_forward_failed caso_id=%s chat_id=%s err=%s",
@@ -866,9 +900,12 @@ def _forward_client_message_to_case(
                 message_id=int(envio.message_id),
             ))
 
-    if mappings:
+    if mappings or operativos:
         try:
-            db.add_all(mappings)
+            if operativos:
+                db.add_all(operativos)
+            if mappings:
+                db.add_all(mappings)
             db.commit()
         except Exception:
             db.rollback()
@@ -916,16 +953,40 @@ def notify_operator_new_caso(
     reply_markup = _case_reply_markup(caso.id)
 
     mappings: list[CasoTelegramNotificacion] = []
+    operativos: list[Comunicacion] = []
     for chat_id, usuario_id in destinatarios:
         envio = tg.send_message(chat_id, text, reply_markup=reply_markup)
+        estado_entrega = "SENT" if envio.ok else (
+            "FAILED_RETRY" if envio.retriable else "FAILED"
+        )
+        # Los dobles de prueba usan SimpleNamespace; sólo persistimos con
+        # casos reales para no violar la FK.
+        if isinstance(caso, CasoEscalamiento) and db is not None:
+            # También se audita el intento fallido: todo aviso interno queda
+            # registrado como OPERATIVO.
+            operativos.append(Comunicacion(
+                pedido_id=pedido.id,
+                direccion=DireccionComunicacion.SALIENTE,
+                canal=Canal.TELEGRAM,
+                contenido=text,
+                autor=AutorComunicacion.AGENTE,
+                clase=ClaseComunicacion.OPERATIVO,
+                usuario_id=usuario_id,
+                escalado=False,
+                caso_id=caso.id,
+                estado_entrega=estado_entrega,
+                error_envio=(
+                    (envio.error or "")[:500] if not envio.ok else None
+                ),
+                enviado_en=datetime.utcnow() if envio.ok else None,
+                fecha=datetime.utcnow(),
+            ))
         if not envio.ok:
             logger.warning(
                 "operator_notification_failed caso_id=%s chat_id=%s err=%s",
                 caso.id, chat_id, tg.redact(envio.error or "unknown"),
             )
             continue
-        # Los dobles de prueba usan SimpleNamespace; sólo persistimos con
-        # casos reales para no violar la FK.
         if isinstance(caso, CasoEscalamiento) and db is not None and envio.message_id:
             mappings.append(
                 CasoTelegramNotificacion(
@@ -936,9 +997,12 @@ def notify_operator_new_caso(
                 )
             )
 
-    if mappings and db is not None:
+    if db is not None and (mappings or operativos):
         try:
-            db.add_all(mappings)
+            if operativos:
+                db.add_all(operativos)
+            if mappings:
+                db.add_all(mappings)
             db.commit()
         except Exception:
             db.rollback()

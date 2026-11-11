@@ -17,6 +17,7 @@ TIPOS_EVENTO = (
     "pedido",
     "hito",
     "mensaje",
+    "operativo",
     "caso",
     "imprevisto",
     "entrega",
@@ -42,6 +43,7 @@ class TimelineResumen(BaseModel):
 
     mensajes: int = 0
     mensajes_clave: int = 0
+    mensajes_operativos: int = 0
     hitos_atrasados: int = 0
     casos_abiertos: int = 0
     imprevistos_abiertos: int = 0

@@ -32,7 +32,7 @@ imprevistos, comunicaciones) y verificar los 7 KPIs:
 docker compose exec -T backend python -m scripts.demo_dashboard_data
 ```
 
-Añadir las **10 conversaciones de ejemplo del simulador** (4 quejas,
+Añadir las **10 conversaciones de ejemplo** (4 quejas,
 4 seguimientos normales y 2 positivas, coherentes con las reglas de
 negocio; idempotente):
 

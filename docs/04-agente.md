@@ -239,64 +239,81 @@ flowchart LR
     M -->|observaciones| H[Caso revisable por humano]
 ```
 
-### 7.4 Simulador de chat WhatsApp (Fase G2)
+### 7.4 Conversaciones y respuesta local a casos
 
-Página **`/simulador`** (menú *Simulador WhatsApp*, roles ADMIN y
-OPERADOR) para probar el agente de punta a punta con la apariencia de
-una conversación real de WhatsApp: lista de chats a la izquierda, hilo
-con burbujas y barra única de redacción con dos modos.
+El operador puede atender al cliente por **dos canales equivalentes**:
 
-**No crea tablas nuevas**: el hilo de conversación **es la tabla
-`comunicaciones` filtrada por `pedido_id`** (ya era el modelo de datos:
-cada pedido agrupa sus mensajes).
+1. **Telegram**, respondiendo al aviso del caso o con los comandos del bot
+   (`/casos`, botones *Ver caso* / *Responder*).
+2. **Plataforma web**, desde **Casos → Responder**: se ve el hilo, el
+   responsable, si el cliente tiene Telegram vinculado y se escribe la
+   respuesta sin usar el móvil del operador.
 
-| Pantalla | Endpoint | Qué hace |
+Ambos canales comparten el mismo servicio (`caso_service`), así que la
+asignación, la línea de tiempo y la auditoría son idénticas. **No se crean
+tablas nuevas**: el hilo sigue siendo `comunicacion` filtrada por
+`pedido_id`, ahora con una columna `clase`:
+
+- `CLIENTE`: conversación real (entrantes del cliente, respuestas del
+  agente/plantillas y respuestas humanas).
+- `OPERATIVO`: comandos del bot, ayudas, confirmaciones, avisos a
+  operadores, reenvíos internos y respuestas bloqueadas (por ejemplo, un
+  intento sin Telegram del cliente).
+
+| Pantalla / acción | Endpoint | Qué hace |
 |---|---|---|
-| Lista de chats | `GET /agent/chats` | Todos los pedidos con cliente, último mensaje, número de mensajes, caso abierto y si hay asesor respondiendo |
-| Hilo | `GET /agent/thread?pedido_id=` | Mensajes ordenados con clasificación detectada, plantilla usada, estado de entrega y caso asociado |
-| Modo **Cliente** | `POST /agent/messages/incoming` | El flujo completo de §7.1: clasifica → responde o escala |
-| Modo **Asesor humano** | `POST /agent/human-reply` | Escribe la respuesta de la persona (ver más abajo) |
+| Bandeja de conversaciones | `GET /agent/chats` | Un chat por pedido con cliente, último mensaje `CLIENTE`, número de mensajes, caso abierto y si hay asesor respondiendo |
+| Hilo | `GET /agent/thread?pedido_id=` | Mensajes ordenados con clasificación, plantilla, estado de entrega y caso. `incluir_operativos=true` añade los internos (auditoría) |
+| Ficha del caso | `GET /casos/{id}` | Pedido, cliente, responsable y si el usuario actual puede responder |
+| Responder caso | `POST /casos/{id}/responder` | Envía la respuesta al cliente por Telegram y registra el mensaje como `HUMANO` / `CLIENTE` |
+| Cerrar caso | `POST /casos/{id}/cerrar` | Cierra el caso y avisa al cliente si tiene Telegram |
+| Compatibilidad | `POST /agent/human-reply` | Respuesta humana sin caso; se conserva para integraciones antiguas |
+| Prueba del agente | `POST /agent/messages/incoming` | Simula un mensaje entrante: clasifica → responde o escala |
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant P as Persona (modo Cliente)
-    participant S as /simulador
+    participant C as Cliente (Telegram)
+    participant T as Bot / webhook
     participant A as Agente (§7.1)
     participant B as BD
-    participant H as Persona (modo Asesor)
+    participant W as Operador (Casos → Responder)
 
-    P->>S: «Esto es una estafa, quiero mi dinero»
-    S->>A: POST /agent/messages/incoming
-    A->>B: comunicacion ENTRANTE (RECLAMO, NEGATIVO)
+    C->>T: «Esto es una estafa, quiero mi dinero»
+    T->>A: mensaje entrante
+    A->>B: comunicacion ENTRANTE / CLIENTE (RECLAMO, NEGATIVO)
     A->>A: Caso RECLAMO abierto (o reutilizado)
     A->>B: plantilla de retención (outbox, PENDING)
-    A-->>S: classification + escalation_reason + caso_id
-    S-->>P: burbuja agente + banda «derivado a persona» + tarjeta de decisión
+    A->>T: aviso del caso a operadores (OPERATIVO)
+    T-->>W: notificación con botones Ver / Responder
 
-    H->>S: modo Asesor → «Ya estamos revisando tu caso»
-    S->>A: POST /agent/human-reply
-    A->>B: comunicacion SALIENTE autor=HUMANO (SENT)
-    A->>B: caso → EN_PROCESO + fecha_primera_accion
-    A-->>S: aviso del caso
-    S-->>H: burbuja «Asesor humano (tú)» + sello «Asesor activo» en la bandeja
+    W->>B: GET /casos/{id} + GET /agent/thread
+    B-->>W: ficha + conversación (solo CLIENTE)
+    W->>B: POST /casos/{id}/responder
+    B->>B: primer operador → responsable + EN_PROCESO
+    B->>T: respuesta SALIENTE / HUMANO / CLIENTE
+    T-->>C: «Ya estamos revisando tu caso»
+    B-->>W: mensaje registrado + estado del caso
 
-    P->>S: «gracias» (modo Cliente)
-    S->>A: POST /agent/messages/incoming
-    A-->>S: human_in_progress=true (cede el paso a la persona)
-    S-->>P: «El agente no interviene: una persona respondió hace poco»
+    Note over W,B: Si otro operador intenta responder → 409.<br/>Si el cliente no vinculó Telegram → 400 y queda un registro OPERATIVO.
 ```
 
-**Respuesta humana (`/agent/human-reply`, OPERADOR+):**
+**Reglas de la respuesta local (OPERADOR+):**
 
-- Queda como `autor=HUMANO`, canal WHATSAPP, `estado_entrega=SENT`
-  (la envía la plataforma, no la cola) y `created_by` del usuario real:
-  **auditoría completa, nadie puede firmar por otro** (§8).
-- Si hay caso abierto del pedido: se registra `fecha_primera_accion` y
-  pasa de `ABIERTO` a `EN_PROCESO`.
-- Activa el mismo cortapisa de §7.1 (`_human_in_progress`,
-  `AGENT_RECENT_HUMAN_RESPONSE_MINUTES=10`): durante ese lapso el agente
-  **no** responde y la UI lo indica, para no pisar a quien está atendiendo.
+- El **primer operador** que responde queda como `responsable_id`; los
+  demás reciben `409` para evitar respuestas duplicadas.
+- La respuesta se registra con `autor=HUMANO`, `clase=CLIENTE`,
+  `usuario_id`/`created_by` del usuario real y `estado_entrega` según el
+  envío: **nadie puede firmar por otro** (§8).
+- Se actualiza `fecha_primera_accion` y, si estaba `ABIERTO`, pasa a
+  `EN_PROCESO`. La línea de tiempo muestra el evento y el hilo del caso.
+- **Sin Telegram del cliente** (`cliente.telegram_chat_id` vacío): se
+  devuelve `400 sin_telegram`, **no** se asigna el caso y el intento se
+  guarda como `OPERATIVO` con `estado_entrega=FAILED`. El cliente debe
+  enviar su código de pedido + DNI al bot para vincular el chat.
+- La respuesta humana activa el mismo cortapisa de §7.1
+  (`_human_in_progress`, `AGENT_RECENT_HUMAN_RESPONSE_MINUTES=10`):
+  durante ese lapso el agente **no** responde y la UI lo indica.
 
 **Cotas del LLM en la práctica:** cada mensaje de cliente puede costar
 hasta 4 llamadas (clasificar + redactar, cada una con reintento al modelo

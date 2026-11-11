@@ -11,7 +11,7 @@ from app.core.deps import get_current_user, require_admin, require_operador
 from app.core.logging import get_logger
 from app.db.session import get_db
 from app.models import (
-    AutorComunicacion, CasoEscalamiento, Comunicacion,
+    AutorComunicacion, CasoEscalamiento, ClaseComunicacion, Comunicacion,
     DireccionComunicacion, EstadoCaso, Pedido,
 )
 from app.schemas.agent import (
@@ -28,6 +28,7 @@ from app.services.caso_service import (
     CasoError,
     enviar_mensaje_humano,
     responder_caso,
+    serializar_comunicacion,
 )
 from app.services.llm_provider import get_llm_provider
 
@@ -48,34 +49,17 @@ def incoming(payload: IncomingMessage, db: Session = Depends(get_db)):
 
 
 # =====================================================================
-# Simulador de chat WhatsApp (Fase G2)
+# Bandeja e hilo de conversaciones (reutilizados por Casos → Responder)
 # =====================================================================
 def _thread_message(c: Comunicacion) -> ThreadMessage:
-    caso = c.caso  # relación lazy (sesión abierta durante el request)
-    return ThreadMessage(
-        id=c.id,
-        direccion=c.direccion,
-        autor=c.autor,
-        canal=c.canal,
-        contenido=c.contenido,
-        fecha=c.fecha,
-        intencion_detectada=c.intencion_detectada,
-        sentimiento=c.sentimiento,
-        escalado=c.escalado,
-        caso_id=c.caso_id,
-        caso_motivo=caso.motivo if caso else None,
-        caso_prioridad=caso.prioridad if caso else None,
-        caso_estado=caso.estado if caso else None,
-        plantilla_id=c.plantilla_id,
-        estado_entrega=c.estado_entrega,
-    )
+    return serializar_comunicacion(c)
 
 
 @router.get(
     "/chats",
     response_model=list[ChatResumen],
     dependencies=[Depends(get_current_user)],
-    summary="Lista de conversaciones del simulador (una por pedido)",
+    summary="Lista de conversaciones (una por pedido)",
 )
 def chats(
     limite: int = Query(30, ge=1, le=100),
@@ -83,8 +67,8 @@ def chats(
 ):
     """Chats con cliente, último mensaje, caso abierto y si hay asesor reciente.
 
-    El hilo de conversación es por pedido: así el simulador replica la bandeja
-    de un asistente de WhatsApp sin crear tablas nuevas.
+    El hilo de conversación es por pedido: así se arma la bandeja de un
+    asistente sin crear tablas nuevas.
     """
     pedidos = db.scalars(
         select(Pedido).order_by(Pedido.fecha_ingreso.desc()).limit(limite)
@@ -96,13 +80,19 @@ def chats(
     conteos = dict(
         db.execute(
             select(Comunicacion.pedido_id, func.count())
-            .where(Comunicacion.pedido_id.in_(ids))
+            .where(
+                Comunicacion.pedido_id.in_(ids),
+                Comunicacion.clase == ClaseComunicacion.CLIENTE,
+            )
             .group_by(Comunicacion.pedido_id)
         ).all()
     )
     recientes = db.scalars(
         select(Comunicacion)
-        .where(Comunicacion.pedido_id.in_(ids))
+        .where(
+            Comunicacion.pedido_id.in_(ids),
+            Comunicacion.clase == ClaseComunicacion.CLIENTE,
+        )
         .order_by(Comunicacion.fecha.desc(), Comunicacion.id.desc())
         .limit(300)
     ).all()
@@ -131,6 +121,7 @@ def chats(
                 Comunicacion.pedido_id.in_(ids),
                 Comunicacion.direccion == DireccionComunicacion.SALIENTE,
                 Comunicacion.autor == AutorComunicacion.HUMANO,
+                Comunicacion.clase == ClaseComunicacion.CLIENTE,
                 Comunicacion.fecha >= limite_asesor,
             )
         ).all()
@@ -167,14 +158,20 @@ def chats(
     dependencies=[Depends(get_current_user)],
     summary="Mensajes del hilo de conversación de un pedido",
 )
-def thread(pedido_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
+def thread(
+    pedido_id: int = Query(..., ge=1),
+    incluir_operativos: bool = Query(
+        False, description="Incluye comandos y avisos internos (auditoría)"
+    ),
+    db: Session = Depends(get_db),
+):
     if db.get(Pedido, pedido_id) is None:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    stmt = select(Comunicacion).where(Comunicacion.pedido_id == pedido_id)
+    if not incluir_operativos:
+        stmt = stmt.where(Comunicacion.clase == ClaseComunicacion.CLIENTE)
     rows = db.scalars(
-        select(Comunicacion)
-        .where(Comunicacion.pedido_id == pedido_id)
-        .order_by(Comunicacion.fecha.asc(), Comunicacion.id.asc())
-        .limit(300)
+        stmt.order_by(Comunicacion.fecha.asc(), Comunicacion.id.asc()).limit(300)
     ).all()
     return [_thread_message(c) for c in rows]
 

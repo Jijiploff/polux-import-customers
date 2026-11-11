@@ -9,10 +9,11 @@ from sqlalchemy import delete, select
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models import (
-    CasoEscalamiento, Cliente, Comunicacion, DireccionComunicacion,
-    EstadoImprevisto, EstadoIngreso, EstadoItem, EstadoPedido, Imprevisto,
-    ModalidadEntrega, MotivoEscalamiento, OrigenItem, Pedido, PedidoItem,
-    TipoImprevisto,
+    AutorComunicacion, Canal, CasoEscalamiento, ClaseComunicacion, Cliente,
+    Comunicacion, DireccionComunicacion, EstadoCaso, EstadoImprevisto,
+    EstadoIngreso, EstadoItem, EstadoPedido, Imprevisto, ModalidadEntrega,
+    MotivoEscalamiento, OrigenItem, Pedido, PedidoItem, PrioridadCaso,
+    TipoImprevisto, Usuario,
 )
 from app.schemas.agent import IncomingMessage
 from app.services.agent_service import AgentService
@@ -67,6 +68,36 @@ def _mk_pedido(db, *, suffix: str | None = None) -> Pedido:
     db.commit()
     db.refresh(ped)
     return ped
+
+
+def _mk_caso(db, ped: Pedido, *, estado: EstadoCaso = EstadoCaso.ABIERTO) -> CasoEscalamiento:
+    caso = CasoEscalamiento(
+        pedido_id=ped.id,
+        motivo=MotivoEscalamiento.RECLAMO,
+        prioridad=PrioridadCaso.ALTA,
+        descripcion="Caso creado por la prueba de respuesta local",
+        fecha_apertura=datetime.utcnow(),
+        estado=estado,
+    )
+    db.add(caso)
+    db.commit()
+    db.refresh(caso)
+    return caso
+
+
+class _FakeTelegram:
+    enabled = True
+    operator_chat_id = ""
+
+    def __init__(self):
+        self.sent: list[tuple[str, str]] = []
+
+    def send_message(self, chat_id, text, **_kwargs):
+        self.sent.append((str(chat_id), text))
+        return SimpleNamespace(ok=True, message_id=1, error=None, retriable=False)
+
+    def redact(self, text):
+        return text
 
 
 # --------- Clasificación ---------
@@ -478,3 +509,246 @@ def test_respuesta_humana_con_pedido_inexistente(client, auth):
         json={"pedido_id": 99999999, "contenido": "hola"},
     )
     assert r.status_code == 404
+
+
+# --------- Respuesta local a casos (sin usar Telegram en persona) ---------
+def test_caso_detalle_y_respuesta_local_asigna_primer_operador(
+    client, auth, db, monkeypatch
+):
+    ped = _mk_pedido(db, suffix="caso1")
+    ped.cliente.telegram_chat_id = "9900101"
+    db.commit()
+    caso = _mk_caso(db, ped)
+    telegram = _FakeTelegram()
+    monkeypatch.setattr(
+        "app.services.caso_service.TelegramService", lambda: telegram
+    )
+    try:
+        # Ficha del caso: datos para que el operador decida si responder.
+        r = client.get(f"/api/v1/casos/{caso.id}", headers=auth["operador"])
+        assert r.status_code == 200
+        detalle = r.json()
+        assert detalle["pedido_codigo"] == ped.codigo
+        assert detalle["cliente_nombre"] == ped.cliente.nombre
+        assert detalle["cliente_telegram_vinculado"] is True
+        assert detalle["puede_responder"] is True
+        assert detalle["responsable_nombre"] is None
+
+        # Primer operador: responde y queda como responsable.
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/responder",
+            headers=auth["operador"],
+            json={"contenido": "Hola, ya estamos revisando tu caso."},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["enviado"] is True
+        assert body["caso_estado"] == "EN_PROCESO"
+        assert body["message"]["autor"] == "HUMANO"
+        assert body["message"]["clase"] == "CLIENTE"
+        assert body["message"]["contenido"] == "Hola, ya estamos revisando tu caso."
+        assert ("9900101", "Hola, ya estamos revisando tu caso.") in telegram.sent
+
+        db.refresh(caso)
+        assert caso.responsable_id is not None
+        assert caso.estado == EstadoCaso.EN_PROCESO
+
+        # Otro operador ya no puede responder el mismo caso.
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/responder",
+            headers=auth["admin"],
+            json={"contenido": "Yo también quiero responder."},
+        )
+        assert r.status_code == 409
+        assert "siendo atendido" in r.json()["detail"]
+
+        # El mismo responsable sí puede seguir conversando.
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/responder",
+            headers=auth["operador"],
+            json={"contenido": "En breve te confirmamos."},
+        )
+        assert r.status_code == 200
+        assert r.json()["enviado"] is True
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_respuesta_local_sin_telegram_no_asigna_y_audita(client, auth, db):
+    ped = _mk_pedido(db, suffix="caso2")
+    caso = _mk_caso(db, ped)
+    try:
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/responder",
+            headers=auth["operador"],
+            json={"contenido": "Intenté responder pero no hay Telegram."},
+        )
+        assert r.status_code == 400
+        assert "Telegram" in r.json()["detail"]
+
+        db.expire_all()
+        caso = db.get(CasoEscalamiento, caso.id)
+        assert caso.responsable_id is None
+        assert caso.estado == EstadoCaso.ABIERTO
+
+        # La conversación no recibió una respuesta falsa; el intento queda
+        # registrado como operativo para auditoría.
+        cliente_rows = db.scalars(
+            select(Comunicacion).where(
+                Comunicacion.pedido_id == ped.id,
+                Comunicacion.clase == ClaseComunicacion.CLIENTE,
+            )
+        ).all()
+        assert cliente_rows == []
+        operativos = db.scalars(
+            select(Comunicacion).where(
+                Comunicacion.pedido_id == ped.id,
+                Comunicacion.clase == ClaseComunicacion.OPERATIVO,
+            )
+        ).all()
+        assert len(operativos) == 1
+        assert operativos[0].estado_entrega == "FAILED"
+        assert "sin_telegram" in (operativos[0].error_envio or "")
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_respuesta_local_caso_cerrado_devuelve_409(client, auth, db):
+    ped = _mk_pedido(db, suffix="caso3")
+    caso = _mk_caso(db, ped, estado=EstadoCaso.CERRADO)
+    try:
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/responder",
+            headers=auth["operador"],
+            json={"contenido": "Mensaje tardío"},
+        )
+        assert r.status_code == 409
+        assert "cerrado" in r.json()["detail"]
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_respuesta_local_denegada_para_gerente(client, auth, db):
+    ped = _mk_pedido(db, suffix="caso4")
+    caso = _mk_caso(db, ped)
+    try:
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/responder",
+            headers=auth["gerente"],
+            json={"contenido": "No debería poder responder"},
+        )
+        assert r.status_code == 403
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_detalle_caso_inexistente_devuelve_404(client, auth):
+    r = client.get("/api/v1/casos/99999999", headers=auth["operador"])
+    assert r.status_code == 404
+
+
+def test_cerrar_caso_avisa_al_cliente_y_no_permite_repetir(
+    client, auth, db, monkeypatch
+):
+    ped = _mk_pedido(db, suffix="caso6")
+    ped.cliente.telegram_chat_id = "9900106"
+    db.commit()
+    caso = _mk_caso(db, ped)
+    telegram = _FakeTelegram()
+    monkeypatch.setattr(
+        "app.services.caso_service.TelegramService", lambda: telegram
+    )
+    try:
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/cerrar", headers=auth["operador"]
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["caso"]["estado"] == "CERRADO"
+        assert body["aviso"] is None
+        assert any("fue cerrado" in texto for _chat, texto in telegram.sent)
+
+        db.refresh(caso)
+        assert caso.estado == EstadoCaso.CERRADO
+        assert caso.fecha_cierre is not None
+        assert caso.responsable_id is not None
+
+        # Un caso ya cerrado no se puede volver a cerrar.
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/cerrar", headers=auth["operador"]
+        )
+        assert r.status_code == 409
+        assert "cerrado" in r.json()["detail"]
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_cerrar_caso_de_otro_operador_devuelve_409(client, auth, db):
+    ped = _mk_pedido(db, suffix="caso7")
+    caso = _mk_caso(db, ped)
+    # Otro operador ya lo tomó.
+    otro = db.scalar(select(Usuario).where(Usuario.email == "t.admin@example.com"))
+    caso.responsable_id = otro.id
+    db.commit()
+    try:
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/cerrar", headers=auth["operador"]
+        )
+        assert r.status_code == 409
+        assert "siendo atendido" in r.json()["detail"]
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_thread_y_chats_ignoran_mensajes_operativos(client, auth, db):
+    ped = _mk_pedido(db, suffix="caso5")
+    base = datetime.utcnow() - timedelta(minutes=2)
+    db.add(Comunicacion(
+        pedido_id=ped.id,
+        direccion=DireccionComunicacion.ENTRANTE,
+        canal=Canal.TELEGRAM,
+        contenido="Hola, ¿cómo va mi pedido?",
+        autor=AutorComunicacion.CLIENTE,
+        clase=ClaseComunicacion.CLIENTE,
+        escalado=False,
+        fecha=base,
+    ))
+    db.add(Comunicacion(
+        pedido_id=ped.id,
+        direccion=DireccionComunicacion.SALIENTE,
+        canal=Canal.TELEGRAM,
+        contenido="✅ Vinculado al pedido de prueba",
+        autor=AutorComunicacion.AGENTE,
+        clase=ClaseComunicacion.OPERATIVO,
+        escalado=False,
+        fecha=base + timedelta(seconds=30),
+    ))
+    db.commit()
+    try:
+        # Por defecto solo se ve la conversación con el cliente.
+        hilo = client.get(
+            f"/api/v1/agent/thread?pedido_id={ped.id}", headers=auth["operador"]
+        ).json()
+        assert len(hilo) == 1
+        assert hilo[0]["contenido"] == "Hola, ¿cómo va mi pedido?"
+        assert hilo[0]["clase"] == "CLIENTE"
+
+        # Con la bandera de auditoría aparecen ambos y se distinguen.
+        hilo = client.get(
+            f"/api/v1/agent/thread?pedido_id={ped.id}&incluir_operativos=true",
+            headers=auth["operador"],
+        ).json()
+        assert [m["clase"] for m in hilo] == ["CLIENTE", "OPERATIVO"]
+        assert hilo[1]["contenido"].startswith("✅")
+
+        # La bandeja cuenta y previsualiza solo la conversación.
+        chat = next(
+            c for c in client.get(
+                "/api/v1/agent/chats", headers=auth["operador"]
+            ).json()
+            if c["pedido_id"] == ped.id
+        )
+        assert chat["total_mensajes"] == 1
+        assert chat["ultima_preview"] == "Hola, ¿cómo va mi pedido?"
+    finally:
+        _cleanup(db, ped.id)

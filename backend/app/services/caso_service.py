@@ -11,12 +11,14 @@ from app.models import (
     AutorComunicacion,
     Canal,
     CasoEscalamiento,
+    ClaseComunicacion,
     Comunicacion,
     DireccionComunicacion,
     EstadoCaso,
     Pedido,
     Usuario,
 )
+from app.schemas.agent import ThreadMessage
 from app.schemas.comms import CasoCreate, CasoUpdate
 from app.services.telegram_service import TelegramSendResult, TelegramService
 
@@ -93,6 +95,65 @@ def _nombre_usuario(db: Session, usuario_id: int | None) -> str:
     return usuario.nombre_completo if usuario else "otro operador"
 
 
+def serializar_comunicacion(c: Comunicacion) -> ThreadMessage:
+    """Convierte una comunicación al mensaje del hilo (incluye su clase)."""
+    caso = c.caso  # relación lazy (sesión abierta durante el request)
+    return ThreadMessage(
+        id=c.id,
+        direccion=c.direccion,
+        autor=c.autor,
+        canal=c.canal,
+        clase=c.clase,
+        contenido=c.contenido,
+        fecha=c.fecha,
+        intencion_detectada=c.intencion_detectada,
+        sentimiento=c.sentimiento,
+        escalado=c.escalado,
+        caso_id=c.caso_id,
+        caso_motivo=caso.motivo if caso else None,
+        caso_prioridad=caso.prioridad if caso else None,
+        caso_estado=caso.estado if caso else None,
+        plantilla_id=c.plantilla_id,
+        estado_entrega=c.estado_entrega,
+    )
+
+
+def _registrar_no_entregado(
+    db: Session,
+    pedido: Pedido,
+    contenido: str,
+    *,
+    usuario_id: int,
+    caso_id: int | None,
+    motivo: str,
+) -> Comunicacion:
+    """Audita un intento de respuesta que no pudo salir hacia el cliente.
+
+    Se guarda como ``OPERATIVO`` para que no se confunda con una respuesta
+    entregada y quede constancia de lo que escribió el operador.
+    """
+    com = Comunicacion(
+        pedido_id=pedido.id,
+        direccion=DireccionComunicacion.SALIENTE,
+        canal=Canal.TELEGRAM,
+        contenido=contenido,
+        autor=AutorComunicacion.HUMANO,
+        clase=ClaseComunicacion.OPERATIVO,
+        escalado=caso_id is not None,
+        caso_id=caso_id,
+        usuario_id=usuario_id,
+        estado_entrega="FAILED",
+        error_envio=motivo[:500],
+        fecha=datetime.utcnow(),
+        created_by_id=usuario_id,
+        updated_by_id=usuario_id,
+    )
+    db.add(com)
+    db.commit()
+    db.refresh(com)
+    return com
+
+
 def _crear_y_enviar(
     db: Session,
     pedido: Pedido,
@@ -123,6 +184,7 @@ def _crear_y_enviar(
         canal=Canal.TELEGRAM,
         contenido=contenido,
         autor=AutorComunicacion.HUMANO,
+        clase=ClaseComunicacion.CLIENTE,
         escalado=caso_id is not None,
         caso_id=caso_id,
         usuario_id=usuario_id,
@@ -175,6 +237,10 @@ def responder_caso(
     if pedido is None:
         raise CasoError("sin_pedido", "El pedido del caso no existe.")
     if pedido.cliente is None or not pedido.cliente.telegram_chat_id:
+        _registrar_no_entregado(
+            db, pedido, contenido,
+            usuario_id=usuario_id, caso_id=caso.id, motivo="sin_telegram",
+        )
         raise CasoError(
             "sin_telegram",
             "El cliente no tiene Telegram vinculado. Pídele que envíe su "
@@ -214,6 +280,16 @@ def enviar_mensaje_humano(
     telegram: TelegramService | None = None,
 ) -> tuple[Comunicacion, TelegramSendResult]:
     """Mensaje de asesor sin caso asociado (panel web)."""
+    if pedido.cliente is None or not pedido.cliente.telegram_chat_id:
+        _registrar_no_entregado(
+            db, pedido, contenido,
+            usuario_id=usuario_id, caso_id=None, motivo="sin_telegram",
+        )
+        raise CasoError(
+            "sin_telegram",
+            "El cliente no tiene Telegram vinculado. Pídele que envíe su "
+            "código de pedido junto con su DNI para vincular el chat.",
+        )
     com, envio = _crear_y_enviar(
         db, pedido, contenido,
         usuario_id=usuario_id, caso_id=None, telegram=telegram,

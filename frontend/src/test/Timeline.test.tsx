@@ -19,8 +19,9 @@ vi.mock("../api/pedidos", () => ({
 const TIMELINE: TimelineData = {
   pedido_id: 7,
   resumen: {
-    mensajes: 5, mensajes_clave: 2, hitos_atrasados: 1,
-    casos_abiertos: 1, imprevistos_abiertos: 0, alertas_activas: 1,
+    mensajes: 5, mensajes_clave: 2, mensajes_operativos: 1,
+    hitos_atrasados: 1, casos_abiertos: 1, imprevistos_abiertos: 0,
+    alertas_activas: 1,
   },
   eventos: [
     {
@@ -28,6 +29,12 @@ const TIMELINE: TimelineData = {
       titulo: "Caso #12: RECLAMO",
       detalle: "Agente detectó RECLAMO · prioridad ALTA · estado EN_PROCESO",
       criticidad: "ALTA", ref_tipo: "caso", ref_id: 12, autor: null,
+    },
+    {
+      fecha: "2026-11-09T10:00:00", tipo: "operativo",
+      titulo: "Mensaje operativo", detalle: "✅ Vinculado al pedido de prueba",
+      criticidad: "INFO", ref_tipo: "comunicacion", ref_id: 2,
+      autor: "AGENTE",
     },
     {
       fecha: "2026-11-09T09:00:00", tipo: "mensaje",
@@ -54,9 +61,13 @@ test("carga la línea de tiempo y muestra eventos, resumen y título", async () 
   ).toBeInTheDocument();
   expect(await screen.findByText("Caso #12: RECLAMO")).toBeInTheDocument();
   expect(screen.getByText("¿Dónde está mi pedido?")).toBeInTheDocument();
+  // Los mensajes operativos se distinguen de la conversación.
+  expect(screen.getByText("Mensaje operativo")).toBeInTheDocument();
+  expect(screen.getByTitle("Operativo")).toBeInTheDocument();
   // Chips de resumen (solo valores > 0): número + etiqueta en nodos de texto
   expect(screen.getByText("5")).toBeInTheDocument();
   expect(screen.getByText("mensajes")).toBeInTheDocument();
+  expect(screen.getByText("operativo(s)")).toBeInTheDocument();
   expect(screen.getByText("hito(s) atrasado(s)")).toBeInTheDocument();
   // Arranca en modo eventos clave (incluir_mensajes=false)
   expect(pedidosModule.pedidosApi.timeline).toHaveBeenCalledWith(7, {
@@ -85,8 +96,9 @@ test("muestra mensaje cuando no hay eventos", async () => {
   vi.mocked(pedidosModule.pedidosApi.timeline).mockResolvedValue({
     pedido_id: 7,
     resumen: {
-      mensajes: 0, mensajes_clave: 0, hitos_atrasados: 0,
-      casos_abiertos: 0, imprevistos_abiertos: 0, alertas_activas: 0,
+      mensajes: 0, mensajes_clave: 0, mensajes_operativos: 0,
+      hitos_atrasados: 0, casos_abiertos: 0, imprevistos_abiertos: 0,
+      alertas_activas: 0,
     },
     eventos: [],
     incluyendo_mensajes: false,

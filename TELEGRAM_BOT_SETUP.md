@@ -411,6 +411,14 @@ Con el bot corriendo (polling en una terminal), ejecuta las siguientes pruebas.
 6. El primer operador que responde queda como responsable. Si otro intenta
    responder, el bot le indica quién está atendiendo el caso.
 
+> **Alternativa sin usar tu Telegram personal:** entra a la plataforma web
+> como ADMIN/OPERADOR, abre **Casos → Responder** y escribe desde ahí. Usa el
+> mismo `caso_service`: el primer operador queda asignado, la respuesta sale
+> por Telegram y se registra igual. Si el cliente no vinculó su Telegram, la
+> web responde `400 sin_telegram`, **no asigna el caso** y guarda el intento
+> como `OPERATIVO` (auditoría). El hilo de la web muestra solo `CLIENTE`; los
+> comandos y avisos internos quedan como `OPERATIVO`.
+
 ### Test 8 — Cerrar el caso desde Telegram
 
 1. Pulsa **✅ Cerrar caso** (o envía `/cerrar N`).
@@ -441,11 +449,13 @@ Con el bot corriendo (polling en una terminal), ejecuta las siguientes pruebas.
 ### Comunicaciones registradas
 
 ```cmd
-docker compose exec -T db /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "Polux#Strong!Pwd2026" -d PoluxImportDB -Q "SELECT TOP 10 id, canal, direccion, intencion_detectada, estado_entrega, LEFT(contenido, 60) AS contenido FROM comunicacion ORDER BY id DESC;"
+docker compose exec -T db /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "Polux#Strong!Pwd2026" -d PoluxImportDB -Q "SELECT TOP 10 id, canal, clase, direccion, intencion_detectada, estado_entrega, LEFT(contenido, 60) AS contenido FROM comunicacion ORDER BY id DESC;"
 ```
 
 Debe mostrar comunicaciones con `canal=TELEGRAM`, alternando `ENTRANTE` (del
-cliente) y `SALIENTE` (del agente), con `estado_entrega=SENT`.
+cliente) y `SALIENTE` (del agente), con `estado_entrega=SENT`. La columna
+`clase` distingue `CLIENTE` (conversación) de `OPERATIVO` (comandos, avisos a
+operadores y respuestas bloqueadas).
 
 ### Cliente vinculado
 

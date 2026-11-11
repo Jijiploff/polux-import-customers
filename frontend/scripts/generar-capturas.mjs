@@ -103,33 +103,22 @@ async function main() {
   await a.waitForTimeout(400);
   await shot(a, "18-nuevo-caso");
 
-  // 19) Simulador de WhatsApp: cliente consulta, agente escala y asesor responde
-  // Nota: el agente cede el paso 10 minutos tras la última respuesta de un asesor
-  // (human_in_progress). Si PD-2025-0001 está "en manos de un asesor", espera a que
-  // quede libre o usa otro pedido, o la captura saldrá sin respuesta del agente.
-  await a.goto(`${BASE}/simulador`);
+  // 19) Responder un caso desde la plataforma (modal con hilo y aviso)
+  await a.goto(`${BASE}/casos`);
   await a.waitForLoadState("networkidle").catch(() => {});
-  // Chat sin intervención humana reciente (ahí el agente responde con IA)
-  await a.locator("aside button").filter({ hasText: "PD-2025-0001" }).first().click();
-  await a.waitForTimeout(600);
-  await a.getByLabel("Mensaje del cliente").fill("¿Dónde está mi pedido? ¿Cuándo llega?");
-  await a.getByRole("button", { name: "Enviar" }).click();
-  await a.getByText("Decisión del agente:").waitFor({ timeout: 60000 }).catch(() => {});
-  await a.getByLabel("Mensaje del cliente").fill("Esto es una estafa, quiero mi dinero");
-  await a.getByRole("button", { name: "Enviar" }).click();
-  await a.getByText(/El agente derivó este caso/).first().waitFor({ timeout: 60000 }).catch(() => {});
-  await a.getByRole("button", { name: "Asesor humano" }).click();
-  await a.getByLabel("Respuesta del asesor")
-    .fill("Hola, ya estamos revisando tu caso: un asesor te contactará en breve.");
-  await a.getByRole("button", { name: "Enviar" }).click();
-  await a.getByText(/Asesor humano \(tú\)/).first().waitFor({ timeout: 30000 }).catch(() => {});
-  await shot(a, "19-simulador-whatsapp");
+  const responder = a.getByRole("button", { name: "Responder" }).first();
+  if (await responder.count()) {
+    await responder.click();
+    await a.getByText("Conversación con el cliente").first()
+      .waitFor({ timeout: 15000 }).catch(() => {});
+    await shot(a, "19-caso-responder");
 
-  // 20) Historial del pedido abierto en el simulador (línea de tiempo)
-  await a.getByRole("button", { name: "Ver historial del pedido" }).click();
-  await a.getByText("Historial del pedido").first().waitFor({ timeout: 15000 }).catch(() => {});
-  await a.getByText("Sin eventos registrados todavía.").first().waitFor({ timeout: 500 }).catch(() => {});
-  await shot(a, "20-historial-simulador");
+    // 20) Línea de tiempo del pedido dentro del mismo modal
+    await a.getByText("Ver línea de tiempo del pedido").first()
+      .click().catch(() => {});
+    await a.waitForTimeout(600);
+    await shot(a, "20-caso-timeline");
+  }
 
   // 3) Sesión GERENTE (solo lectura)
   const ctxG = await browser.newContext({ viewport: { width: 1440, height: 900 } });

@@ -9,6 +9,7 @@ const TIPO_UI: Record<string, { icono: string; bg: string; label: string }> = {
   pedido: { icono: "🛒", bg: "#f1f5f9", label: "Pedido" },
   hito: { icono: "🏁", bg: "#e0e7ff", label: "Hito" },
   mensaje: { icono: "💬", bg: "#dcfce7", label: "Mensaje" },
+  operativo: { icono: "⚙️", bg: "#f1f5f9", label: "Operativo" },
   caso: { icono: "⚖️", bg: "#fee2e2", label: "Caso" },
   imprevisto: { icono: "⚠️", bg: "#fef3c7", label: "Imprevisto" },
   entrega: { icono: "📦", bg: "#ede9fe", label: "Entrega" },
@@ -155,6 +156,7 @@ export function Timeline({
           {r && (
             <>
               <ChipResumen valor={r.mensajes} texto="mensajes" />
+              <ChipResumen valor={r.mensajes_operativos} texto="operativo(s)" />
               <ChipResumen valor={r.casos_abiertos} texto="caso(s) abierto(s)" />
               <ChipResumen valor={r.hitos_atrasados} texto="hito(s) atrasado(s)" />
               <ChipResumen valor={r.imprevistos_abiertos} texto="imprevisto(s)" />

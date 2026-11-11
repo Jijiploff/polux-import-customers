@@ -28,6 +28,7 @@ from app.models.comms import (  # noqa: F401
     Canal,
     CasoEscalamiento,
     CasoTelegramNotificacion,
+    ClaseComunicacion,
     Comunicacion,
     DireccionComunicacion,
     EstadoAlerta,
@@ -78,7 +79,8 @@ __all__ = [
     # comms
     "PlantillaMensaje", "Comunicacion", "Alerta", "Imprevisto", "CasoEscalamiento",
     "CasoTelegramNotificacion", "UsuarioCasoActivo",
-    "Canal", "DireccionComunicacion", "AutorComunicacion", "Sentimiento",
+    "Canal", "DireccionComunicacion", "AutorComunicacion", "ClaseComunicacion",
+    "Sentimiento",
     "TipoAlerta", "SeveridadAlerta", "EstadoAlerta",
     "TipoImprevisto", "EstadoImprevisto", "MotivoEscalamiento", "PrioridadCaso", "EstadoCaso",
     # delivery

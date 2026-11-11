@@ -13,7 +13,6 @@ const LINKS_BY_ROLE: Record<Rol, { to: string; label: string }[]> = {
     { to: "/entregas", label: "Entregas" },
     { to: "/comunicaciones", label: "Comunicaciones" },
     { to: "/agente", label: "Agente IA" },
-    { to: "/simulador", label: "Simulador WhatsApp" },
     { to: "/admin/usuarios", label: "Usuarios" },
     { to: "/admin/reglas", label: "Reglas" },
     { to: "/admin/catalogos", label: "Catálogos" },
@@ -28,7 +27,6 @@ const LINKS_BY_ROLE: Record<Rol, { to: string; label: string }[]> = {
     { to: "/entregas", label: "Entregas" },
     { to: "/comunicaciones", label: "Comunicaciones" },
     { to: "/agente", label: "Agente IA" },
-    { to: "/simulador", label: "Simulador WhatsApp" },
   ],
   GERENTE: [
     { to: "/", label: "Dashboard" },

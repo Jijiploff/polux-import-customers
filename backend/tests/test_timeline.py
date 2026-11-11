@@ -16,6 +16,7 @@ from app.models import (
     AutorComunicacion,
     Canal,
     CasoEscalamiento,
+    ClaseComunicacion,
     Comunicacion,
     DireccionComunicacion,
     Entrega,
@@ -231,3 +232,38 @@ def test_pedido_inexistente_404(client, auth):
 def test_sin_token_401(client):
     r = client.get("/api/v1/pedidos/1/timeline")
     assert r.status_code == 401
+
+
+def test_mensajes_operativos_separados_de_la_conversacion(db, client, auth):
+    ped, _ = _preparar(db)
+    ahora = datetime.utcnow()
+    operativo = Comunicacion(
+        pedido_id=ped.id, direccion=DireccionComunicacion.SALIENTE,
+        canal=Canal.TELEGRAM, contenido="✅ Vinculado al pedido de prueba",
+        autor=AutorComunicacion.AGENTE,
+        clase=ClaseComunicacion.OPERATIVO,
+        estado_entrega="SENT", fecha=ahora,
+    )
+    db.add(operativo)
+    db.commit()
+    try:
+        # Por defecto el resumen separa conversación de operación.
+        body = _get(client, auth, ped.id).json()
+        assert body["resumen"]["mensajes"] == 3
+        assert body["resumen"]["mensajes_operativos"] == 1
+        assert all(e["tipo"] != "operativo" for e in body["eventos"])
+
+        # Al pedir todos los mensajes, el operativo aparece con su propio tipo.
+        body = _get(client, auth, ped.id, "?incluir_mensajes=true").json()
+        operativos = [e for e in body["eventos"] if e["tipo"] == "operativo"]
+        assert len(operativos) == 1
+        assert operativos[0]["detalle"] == "✅ Vinculado al pedido de prueba"
+        assert body["resumen"]["mensajes"] == 3
+
+        # Filtro explícito por tipo.
+        body = _get(client, auth, ped.id, "?tipos=operativo").json()
+        assert body["eventos"] and all(
+            e["tipo"] == "operativo" for e in body["eventos"]
+        )
+    finally:
+        cleanup_pedido(db, ped.id)

@@ -194,11 +194,12 @@ erDiagram
         int plantilla_id FK
         int caso_id FK
         string direccion "ENTRANTE | SALIENTE"
-        string canal "WHATSAPP | EMAIL | WEB"
+        string canal "WHATSAPP | EMAIL | WEB | TELEGRAM"
+        string clase "CLIENTE | OPERATIVO"
         string contenido
         string intencion_detectada "por el agente"
         string sentimiento "NEUTRO|POSITIVO|NEGATIVO"
-        string autor "CLIENTE | AGENTE | SISTEMA | USUARIO"
+        string autor "CLIENTE | AGENTE | HUMANO"
         string estado_entrega "PENDING|SENT|FAILED…"
         string whatsapp_message_id "wamid (único si no es NULL)"
         datetime fecha
@@ -408,8 +409,9 @@ dashboard (verde/ámbar/rojo).
 | `entrega` | `estado` | `PROGRAMADA`, `EN_RUTA`, `ENTREGADA`, `FALLIDA`, `REPROGRAMADA` |
 | `conformidad` | `resultado` | `CONFORME`, `CON_OBSERVACIONES` |
 | `comunicacion` | `direccion` | `ENTRANTE`, `SALIENTE` |
-| `comunicacion` | `canal` | `WHATSAPP`, `EMAIL`, `WEB` |
-| `comunicacion` | `autor` | `CLIENTE`, `AGENTE`, `SISTEMA`, `USUARIO` |
+| `comunicacion` | `canal` | `WHATSAPP`, `EMAIL`, `WEB`, `TELEGRAM` |
+| `comunicacion` | `clase` | `CLIENTE` (conversación), `OPERATIVO` (comandos, avisos internos, auditoría) |
+| `comunicacion` | `autor` | `CLIENTE`, `AGENTE`, `HUMANO` |
 | `comunicacion` | `estado_entrega` | `PENDING`, `SENT`, `SENT_EMAIL`, `FAILED_RETRY`, `FAILED` (NULL = entrante) |
 | `caso_escalamiento` | `estado` | `ABIERTO`, `EN_PROCESO`, `RESUELTO`, `CERRADO` |
 | `caso_escalamiento` | `motivo` | `RECLAMO`, `RETRASO_LEVE`, `RETRASO_CRITICO`, `IMPREVISTO`, `DAÑO`, `PRODUCTO_INCORRECTO`, `FALTA_RESPUESTA` |

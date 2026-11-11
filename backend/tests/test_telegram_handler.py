@@ -13,6 +13,7 @@ from app.models import (
     Canal,
     CasoEscalamiento,
     CasoTelegramNotificacion,
+    ClaseComunicacion,
     Cliente,
     Comunicacion,
     DireccionComunicacion,
@@ -504,6 +505,31 @@ def test_notificacion_llega_a_todos_los_operadores(operadores):
     assert {3001, 3002} <= {chat for chat, _texto in tg.sent}
 
 
+def test_notificacion_fallida_queda_auditada_como_operativo(operadores, escenario):
+    db_ops, usuarios = operadores
+    db, pedido, _cliente = escenario
+    caso = _crear_caso(db, pedido)
+
+    class FailingTelegram(FakeTelegram):
+        def send_message(self, chat_id, text, **kwargs):
+            return SimpleNamespace(
+                ok=False, message_id=None, error="telegram caído", retriable=True,
+            )
+
+    notify_operator_new_caso(caso, pedido, telegram=FailingTelegram(), db=db)
+
+    operativos = db.scalars(
+        select(Comunicacion).where(
+            Comunicacion.caso_id == caso.id,
+            Comunicacion.clase == ClaseComunicacion.OPERATIVO,
+            Comunicacion.usuario_id.in_([u.id for u in usuarios]),
+        )
+    ).all()
+    assert len(operativos) == 2
+    assert all(o.estado_entrega == "FAILED_RETRY" for o in operativos)
+    assert all(o.error_envio == "telegram caído" for o in operativos)
+
+
 def test_notificacion_incluye_fallback_de_env(operadores):
     db, _usuarios = operadores
     caso = SimpleNamespace(
@@ -547,6 +573,17 @@ def test_notificacion_guarda_botones_y_mapeo(operadores, escenario):
     )
     assert fila is not None
     assert fila.caso_id == caso.id
+
+    # El aviso a operadores queda auditado como operativo (no como conversación).
+    operativos = db.scalars(
+        select(Comunicacion).where(
+            Comunicacion.caso_id == caso.id,
+            Comunicacion.clase == ClaseComunicacion.OPERATIVO,
+            Comunicacion.usuario_id.in_([u.id for u in _usuarios]),
+        )
+    ).all()
+    assert len(operativos) == 2
+    assert all(o.estado_entrega == "SENT" for o in operativos)
 
 
 def test_callback_ver_muestra_datos_y_timeline(operador, escenario):
@@ -775,6 +812,18 @@ def test_mensaje_del_cliente_se_reenvia_y_operador_responde(operador, escenario)
     assert entrada is not None
     assert entrada.caso_id == caso.id
     assert entrada.autor == AutorComunicacion.CLIENTE
+    assert entrada.clase == ClaseComunicacion.CLIENTE
+
+    # El reenvío al operador también queda auditado, pero como operativo.
+    reenvio = db2.scalar(
+        select(Comunicacion).where(
+            Comunicacion.pedido_id == pedido.id,
+            Comunicacion.clase == ClaseComunicacion.OPERATIVO,
+            Comunicacion.contenido.contains("Ya pagué"),
+        )
+    )
+    assert reenvio is not None
+    assert reenvio.caso_id == caso.id
 
     # El operador responde citando el aviso y el cliente lo recibe.
     result2 = handle_telegram_update(

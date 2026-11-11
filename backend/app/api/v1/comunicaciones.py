@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_operador
 from app.db.session import get_db
-from app.models import Comunicacion
+from app.models import ClaseComunicacion, Comunicacion
 from app.schemas.comms import ComunicacionCreate, ComunicacionRead
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -16,6 +16,7 @@ router = APIRouter(dependencies=[Depends(get_current_user)])
 @router.get("", response_model=list[ComunicacionRead])
 def listar(
     pedido_id: int | None = Query(None),
+    clase: ClaseComunicacion | None = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -23,6 +24,8 @@ def listar(
     stmt = select(Comunicacion).order_by(Comunicacion.fecha.desc())
     if pedido_id:
         stmt = stmt.where(Comunicacion.pedido_id == pedido_id)
+    if clase:
+        stmt = stmt.where(Comunicacion.clase == clase)
     return db.scalars(stmt.offset((page - 1) * size).limit(size)).all()
 
 
@@ -37,6 +40,7 @@ def crear(payload: ComunicacionCreate, db: Session = Depends(get_db), current=De
         intencion_detectada=payload.intencion_detectada,
         sentimiento=payload.sentimiento,
         autor=payload.autor,
+        clase=payload.clase,
         plantilla_id=payload.plantilla_id,
         escalado=payload.escalado,
         fecha=payload.fecha or datetime.utcnow(),

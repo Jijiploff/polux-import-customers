@@ -2,11 +2,12 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import (
     AutorComunicacion,
     Canal,
+    ClaseComunicacion,
     DireccionComunicacion,
     EstadoAlerta,
     EstadoCaso,
@@ -18,6 +19,7 @@ from app.models import (
     TipoAlerta,
     TipoImprevisto,
 )
+from app.schemas.agent import ThreadMessage
 
 
 class _OrmModel(BaseModel):
@@ -33,6 +35,7 @@ class ComunicacionCreate(BaseModel):
     intencion_detectada: Optional[str] = None
     sentimiento: Optional[Sentimiento] = None
     autor: AutorComunicacion
+    clase: ClaseComunicacion = ClaseComunicacion.CLIENTE
     plantilla_id: Optional[int] = None
     escalado: bool = False
     fecha: Optional[datetime] = None
@@ -47,6 +50,7 @@ class ComunicacionRead(_OrmModel):
     intencion_detectada: Optional[str]
     sentimiento: Optional[Sentimiento]
     autor: AutorComunicacion
+    clase: ClaseComunicacion
     escalado: bool
     fecha: datetime
 
@@ -111,6 +115,34 @@ class CasoUpdate(BaseModel):
     estado: Optional[EstadoCaso] = None
     responsable_id: Optional[int] = None
     registrar_primera_accion: bool = False
+
+
+class CasoDetalleRead(CasoRead):
+    """Ficha del caso con el contexto necesario para responderlo."""
+
+    responsable_nombre: Optional[str] = None
+    pedido_codigo: str
+    cliente_nombre: str
+    cliente_telegram_vinculado: bool = False
+    puede_responder: bool = False
+
+
+class CasoRespuestaCreate(BaseModel):
+    contenido: str = Field(min_length=1, max_length=4000)
+
+
+class CasoRespuestaRead(BaseModel):
+    message: ThreadMessage
+    caso_id: int
+    caso_estado: EstadoCaso
+    enviado: bool
+    aviso: Optional[str] = None
+
+
+class CasoCierreRead(BaseModel):
+    caso: CasoRead
+    aviso: Optional[str] = None
+
 
 class AlertaUpdate(BaseModel):
     estado: EstadoAlerta

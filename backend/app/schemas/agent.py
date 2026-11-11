@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.models import (
     AutorComunicacion,
     Canal,
+    ClaseComunicacion,
     DireccionComunicacion,
     EstadoCaso,
     MotivoEscalamiento,
@@ -60,7 +61,7 @@ class AgentMetrics(BaseModel):
 
 
 # =====================================================================
-# Simulador de chat WhatsApp (Fase G2)
+# Bandeja e hilo de conversaciones
 # =====================================================================
 class ThreadMessage(BaseModel):
     """Un mensaje del hilo de conversación de un pedido."""
@@ -69,6 +70,7 @@ class ThreadMessage(BaseModel):
     direccion: DireccionComunicacion
     autor: AutorComunicacion
     canal: Canal
+    clase: ClaseComunicacion = ClaseComunicacion.CLIENTE
     contenido: str
     fecha: datetime
     intencion_detectada: Optional[str] = None
@@ -83,7 +85,7 @@ class ThreadMessage(BaseModel):
 
 
 class ChatResumen(BaseModel):
-    """Fila de la lista de chats del simulador."""
+    """Fila de la lista de conversaciones."""
 
     pedido_id: int
     codigo: str

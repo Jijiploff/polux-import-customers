@@ -170,8 +170,11 @@ atrasados, casos/imprevistos abiertos, alertas activas) y `eventos` con
 | Método | Ruta | Descripción | Rol |
 |---|---|---|---|
 | GET | `/casos` | Listar casos de escalamiento | OPERADOR+ |
+| GET | `/casos/{caso_id}` | Ficha del caso (pedido, cliente, Telegram vinculado, responsable y si puedes responder) | autenticado |
 | POST | `/casos` | Crear caso manual | OPERADOR |
-| PATCH | `/casos/{caso_id}` | Primera acción, cambio de estado, cierre | OPERADOR |
+| POST | `/casos/{caso_id}/responder` | Responder al cliente desde la plataforma; el primer operador queda como responsable y el mensaje sale por Telegram (400 `sin_telegram` si el cliente no vinculó su chat) | OPERADOR |
+| POST | `/casos/{caso_id}/cerrar` | Cerrar el caso y avisar al cliente por Telegram si está vinculado | OPERADOR |
+| PATCH | `/casos/{caso_id}` | Primera acción, cambio de estado | OPERADOR |
 
 ### Imprevistos
 
@@ -185,8 +188,16 @@ atrasados, casos/imprevistos abiertos, alertas activas) y `eventos` con
 
 | Método | Ruta | Descripción | Rol |
 |---|---|---|---|
-| GET | `/comunicaciones` | Historial (filtros: pedido, canal, dirección…) | OPERADOR+ |
+| GET | `/comunicaciones` | Historial (filtros: pedido, canal, dirección, `clase`) | OPERADOR+ |
 | POST | `/comunicaciones` | Envío manual (queda en cola → outbox) | OPERADOR |
+
+Cada comunicación tiene una `clase`:
+
+- `CLIENTE`: forma parte de la conversación con el cliente (entrantes,
+  respuestas del agente/plantillas y respuestas humanas).
+- `OPERATIVO`: comandos, ayudas, confirmaciones, avisos a operadores y
+  registros internos. No se muestran en el hilo por defecto ni cuentan en los
+  KPI de conversación.
 
 ### Alertas
 
@@ -233,9 +244,9 @@ atrasados, casos/imprevistos abiertos, alertas activas) y `eventos` con
 | POST | `/agent/messages/incoming` | Procesa un mensaje entrante (simulación local) | autenticado |
 | GET | `/agent/provider` | Proveedor LLM activo (mock / gemini) | autenticado |
 | GET | `/agent/metrics` | Métricas agregadas del agente | autenticado |
-| GET | `/agent/chats` | Bandeja del simulador: un chat por pedido (cliente, preview, caso abierto, asesor reciente) | autenticado |
-| GET | `/agent/thread?pedido_id=` | Hilo de conversación de un pedido (mensajes con clasificación y caso) | autenticado |
-| POST | `/agent/human-reply` | Responde como persona (asesor) en el hilo; marca el caso EN_PROCESO y el agente cede el paso | OPERADOR |
+| GET | `/agent/chats` | Bandeja de conversaciones: un chat por pedido (cliente, preview, caso abierto, asesor reciente). Solo cuenta mensajes `CLIENTE` | autenticado |
+| GET | `/agent/thread?pedido_id=` | Hilo de conversación de un pedido (mensajes con clasificación y caso). Por defecto solo `CLIENTE`; `incluir_operativos=true` añade los internos | autenticado |
+| POST | `/agent/human-reply` | Responde como persona sin caso. Se mantiene por compatibilidad; la UI de casos usa `POST /casos/{id}/responder` | OPERADOR |
 | POST | `/agent/test/classify` | Clasifica un texto sin ejecutar el flujo (degrada al motor local si el LLM cae) | ADMIN |
 
 ### Operación manual (admin)

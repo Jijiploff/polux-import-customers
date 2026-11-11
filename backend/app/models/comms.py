@@ -49,6 +49,19 @@ class AutorComunicacion(str, enum.Enum):
     CLIENTE = "CLIENTE"
 
 
+class ClaseComunicacion(str, enum.Enum):
+    """Distingue la conversación con el cliente de los mensajes internos.
+
+    - ``CLIENTE``: mensajes que forman parte del hilo con el cliente
+      (entrantes, respuestas del agente/plantillas y respuestas humanas).
+    - ``OPERATIVO``: comandos, ayudas, confirmaciones, avisos a operadores
+      y cualquier registro interno del sistema.
+    """
+
+    CLIENTE = "CLIENTE"
+    OPERATIVO = "OPERATIVO"
+
+
 class Sentimiento(str, enum.Enum):
     NEUTRO = "NEUTRO"
     POSITIVO = "POSITIVO"
@@ -169,6 +182,12 @@ class Comunicacion(Base, TimestampMixin, AuditUserMixin):
     )
     autor: Mapped[AutorComunicacion] = mapped_column(
         SAEnum(AutorComunicacion, native_enum=False, length=20), nullable=False
+    )
+    clase: Mapped[ClaseComunicacion] = mapped_column(
+        SAEnum(ClaseComunicacion, native_enum=False, length=20),
+        nullable=False,
+        default=ClaseComunicacion.CLIENTE,
+        index=True,
     )
     usuario_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuario.id"), nullable=True

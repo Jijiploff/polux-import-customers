@@ -1,5 +1,4 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 import {
   agentApi, type AgentMetrics, type AgentResult, type ClassifyTestResult,
 } from "../../api/agent";
@@ -36,7 +35,7 @@ export function AgentePage() {
   const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
 
-  // Formulario del simulador de chat
+  // Formulario de prueba de conversación
   const [canal, setCanal] = useState<Canal>("WHATSAPP");
   const [pedidoId, setPedidoId] = useState<string>("");
   const [contenido, setContenido] = useState("");
@@ -111,9 +110,8 @@ export function AgentePage() {
         Aquí puedes conversar con el agente como si fueras un cliente: él clasifica el
         mensaje, responde con una plantilla y decide si escala a una persona.
         El mensaje siempre queda en <strong>Comunicaciones</strong>; la respuesta
-        también cuando asocias el mensaje a un pedido.
-        ¿Quieres una conversación completa con burbujas y respuesta humana? Pasa por el{" "}
-        <Link to="/simulador">Simulador de WhatsApp</Link>.
+        también cuando asocias el mensaje a un pedido. Para responder a un caso
+        escalado, usa <strong>Casos → Responder</strong>.
       </p>
 
       {/* Métricas del agente */}
@@ -146,12 +144,12 @@ export function AgentePage() {
       </section>
 
       <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", alignItems: "flex-start" }}>
-        {/* Simulador de conversación */}
+        {/* Prueba de conversación con el agente */}
         <section style={{
           flex: "1 1 380px", background: "white", border: "1px solid #e2e8f0",
           borderRadius: 8, padding: "1rem",
         }}>
-          <h3 style={{ marginTop: 0 }}>Simulador de conversación</h3>
+          <h3 style={{ marginTop: 0 }}>Probar conversación</h3>
           <form onSubmit={enviarMensaje}>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
               <FormField label="Canal">
@@ -159,6 +157,7 @@ export function AgentePage() {
                   <option value="WHATSAPP">WhatsApp</option>
                   <option value="EMAIL">Email</option>
                   <option value="WEB">Web</option>
+                  <option value="TELEGRAM">Telegram</option>
                 </select>
               </FormField>
               <FormField label="Pedido (opcional)">
