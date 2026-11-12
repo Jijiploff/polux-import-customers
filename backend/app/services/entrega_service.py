@@ -25,7 +25,7 @@ from app.models import (
     ResultadoConformidad,
     TipoEntrega,
 )
-from app.schemas.entrega import ConformidadItemIn, EntregaCreate
+from app.schemas.entrega import ConformidadItemIn, EntregaCreate, EntregaUpdate
 
 
 def _items_del_pedido(db: Session, pedido_id: int) -> list[PedidoItem]:
@@ -46,7 +46,7 @@ def _validar_items_listos(items: list[PedidoItem], ids: list[int]) -> None:
 
 
 def crear_entrega(
-    db: Session, payload: EntregaCreate, *, usuario_id: int
+    db: Session, payload: EntregaCreate, *, usuario_id: int | None
 ) -> Entrega:
     pedido = db.get(Pedido, payload.pedido_id)
     if pedido is None:
@@ -100,12 +100,22 @@ def crear_entrega(
         tipo=payload.tipo,
         modalidad=payload.modalidad,
         fecha_programada=payload.fecha_programada,
-        estado=EstadoEntrega.PROGRAMADA,
+        estado=payload.estado_inicial,
         autorizada_por_id=payload.autorizada_por_id,
         fecha_autorizacion=payload.fecha_autorizacion,
         motivo_parcial=payload.motivo_parcial,
         created_by_id=usuario_id,
         updated_by_id=usuario_id,
+        direccion=payload.direccion,
+        distrito=payload.distrito,
+        punto_recojo=payload.punto_recojo,
+        referencia=payload.referencia,
+        receptor_nombre=payload.receptor_nombre,
+        receptor_dni=payload.receptor_dni,
+        receptor_telefono=payload.receptor_telefono,
+        franja_horaria=payload.franja_horaria,
+        notas_courier=payload.notas_courier,
+        creado_por_agente=payload.creado_por_agente,
     )
     db.add(entrega)
     db.flush()
@@ -124,6 +134,8 @@ def completar_entrega(
     *,
     fecha_real: datetime,
     conformidades: list[ConformidadItemIn],
+    receptor_verificado: bool = False,
+    recibido_por: str = "",
     usuario_id: int,
 ) -> Entrega:
     entrega = db.scalar(
@@ -179,10 +191,81 @@ def completar_entrega(
 
     entrega.fecha_real = fecha_real
     entrega.estado = EstadoEntrega.ENTREGADA
+    entrega.receptor_verificado = receptor_verificado
+    entrega.recibido_por = recibido_por or entrega.receptor_nombre
     entrega.updated_by_id = usuario_id
     db.flush()
 
     _cerrar_o_actualizar_pedido(db, entrega.pedido_id, usuario_id)
+    db.commit()
+    db.refresh(entrega)
+    return entrega
+
+
+def actualizar_entrega(
+    db: Session, entrega_id: int, payload: EntregaUpdate, *, usuario_id: int
+) -> Entrega:
+    entrega = db.get(Entrega, entrega_id)
+    if entrega is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entrega no encontrada")
+    if entrega.estado in {EstadoEntrega.ENTREGADA, EstadoEntrega.FALLIDA}:
+        raise HTTPException(status.HTTP_409_CONFLICT, "La entrega es inmutable en su estado actual")
+    for campo, valor in payload.model_dump(exclude_unset=True).items():
+        setattr(entrega, campo, valor)
+    entrega.updated_by_id = usuario_id
+    db.commit()
+    db.refresh(entrega)
+    return entrega
+
+
+def confirmar_entrega(db: Session, entrega_id: int, *, usuario_id: int) -> Entrega:
+    entrega = db.get(Entrega, entrega_id)
+    if entrega is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entrega no encontrada")
+    if entrega.estado not in {EstadoEntrega.BORRADOR, EstadoEntrega.RECHAZADA}:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Solo se pueden confirmar borradores")
+    entrega.estado = EstadoEntrega.PROGRAMADA
+    entrega.confirmada_por_id = usuario_id
+    entrega.fecha_confirmacion = datetime.utcnow()
+    entrega.motivo_rechazo = None
+    entrega.updated_by_id = usuario_id
+    db.commit()
+    db.refresh(entrega)
+    return entrega
+
+
+def rechazar_entrega(
+    db: Session, entrega_id: int, motivo: str, *, usuario_id: int
+) -> Entrega:
+    entrega = db.get(Entrega, entrega_id)
+    if entrega is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entrega no encontrada")
+    if entrega.estado != EstadoEntrega.BORRADOR:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Solo se pueden rechazar borradores")
+    entrega.estado = EstadoEntrega.RECHAZADA
+    entrega.motivo_rechazo = motivo
+    entrega.updated_by_id = usuario_id
+    db.commit()
+    db.refresh(entrega)
+    return entrega
+
+
+def cambiar_estado_entrega(
+    db: Session, entrega_id: int, estado: EstadoEntrega, *, usuario_id: int
+) -> Entrega:
+    entrega = db.get(Entrega, entrega_id)
+    if entrega is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entrega no encontrada")
+    permitidas = {
+        EstadoEntrega.PROGRAMADA: {EstadoEntrega.EN_RUTA, EstadoEntrega.REPROGRAMADA},
+        EstadoEntrega.EN_RUTA: {EstadoEntrega.ENTREGADA, EstadoEntrega.FALLIDA},
+        EstadoEntrega.FALLIDA: {EstadoEntrega.REPROGRAMADA},
+        EstadoEntrega.REPROGRAMADA: {EstadoEntrega.PROGRAMADA},
+    }
+    if estado not in permitidas.get(entrega.estado, set()):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Transición de estado no permitida")
+    entrega.estado = estado
+    entrega.updated_by_id = usuario_id
     db.commit()
     db.refresh(entrega)
     return entrega

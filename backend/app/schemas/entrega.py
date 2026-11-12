@@ -54,6 +54,21 @@ class EntregaRead(_OrmModel):
     autorizada_por_id: Optional[int]
     fecha_autorizacion: Optional[datetime]
     motivo_parcial: Optional[str]
+    direccion: Optional[str]
+    distrito: Optional[str]
+    punto_recojo: Optional[str]
+    referencia: Optional[str]
+    receptor_nombre: Optional[str]
+    receptor_dni: Optional[str]
+    receptor_telefono: Optional[str]
+    franja_horaria: Optional[str]
+    notas_courier: Optional[str]
+    creado_por_agente: bool
+    confirmada_por_id: Optional[int]
+    fecha_confirmacion: Optional[datetime]
+    motivo_rechazo: Optional[str]
+    receptor_verificado: bool
+    recibido_por: Optional[str]
     items: list[EntregaItemRead] = Field(default_factory=list)
 
 
@@ -66,8 +81,40 @@ class EntregaCreate(BaseModel):
     autorizada_por_id: Optional[int] = None
     fecha_autorizacion: Optional[datetime] = None
     motivo_parcial: Optional[str] = None
+    direccion: Optional[str] = Field(None, max_length=300)
+    distrito: Optional[str] = Field(None, max_length=120)
+    punto_recojo: Optional[str] = Field(None, max_length=300)
+    referencia: Optional[str] = Field(None, max_length=300)
+    receptor_nombre: Optional[str] = Field(None, max_length=160)
+    receptor_dni: Optional[str] = Field(None, max_length=30)
+    receptor_telefono: Optional[str] = Field(None, max_length=40)
+    franja_horaria: Optional[str] = Field(None, max_length=40)
+    notas_courier: Optional[str] = None
+    estado_inicial: EstadoEntrega = EstadoEntrega.PROGRAMADA
+    creado_por_agente: bool = False
+
+
+class EntregaUpdate(BaseModel):
+    modalidad: Optional[ModalidadEntrega] = None
+    fecha_programada: Optional[datetime] = None
+    direccion: Optional[str] = Field(None, max_length=300)
+    distrito: Optional[str] = Field(None, max_length=120)
+    punto_recojo: Optional[str] = Field(None, max_length=300)
+    referencia: Optional[str] = Field(None, max_length=300)
+    receptor_nombre: Optional[str] = Field(None, max_length=160)
+    receptor_dni: Optional[str] = Field(None, max_length=30)
+    receptor_telefono: Optional[str] = Field(None, max_length=40)
+    franja_horaria: Optional[str] = Field(None, max_length=40)
+    notas_courier: Optional[str] = None
+    motivo_parcial: Optional[str] = None
+
+
+class EntregaRechazar(BaseModel):
+    motivo: str = Field(min_length=1, max_length=1000)
 
 
 class EntregaCompletar(BaseModel):
     fecha_real: datetime
+    receptor_verificado: bool = False
+    recibido_por: str = Field(default="", max_length=200)
     conformidades: list[ConformidadItemIn]

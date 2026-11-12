@@ -13,7 +13,7 @@ export type Canal = "WHATSAPP" | "EMAIL" | "WEB" | "TELEGRAM";
 export type DireccionCom = "ENTRANTE" | "SALIENTE";
 export type ClaseComunicacion = "CLIENTE" | "OPERATIVO";
 export type TipoEntrega = "COMPLETA" | "PARCIAL";
-export type EstadoEntrega = "PROGRAMADA" | "EN_RUTA" | "ENTREGADA" | "FALLIDA" | "REPROGRAMADA";
+export type EstadoEntrega = "BORRADOR" | "PROGRAMADA" | "EN_RUTA" | "ENTREGADA" | "FALLIDA" | "REPROGRAMADA" | "RECHAZADA";
 export type ResultadoConformidad = "CONFORME" | "CON_OBSERVACIONES";
 export type TipoImprevisto = "OPERATIVO" | "ADUANERO" | "DAÑO" | "AGOTADO" | "OTRO";
 export type EstadoImprevisto = "ABIERTO" | "EN_PROCESO" | "RESUELTO" | "CERRADO";
@@ -72,6 +72,13 @@ export interface Entrega {
   estado: EstadoEntrega; fecha_programada: string; fecha_real?: string | null;
   autorizada_por_id?: number | null; fecha_autorizacion?: string | null;
   motivo_parcial?: string | null;
+  direccion?: string | null; distrito?: string | null; punto_recojo?: string | null;
+  referencia?: string | null; receptor_nombre?: string | null; receptor_dni?: string | null;
+  receptor_telefono?: string | null; franja_horaria?: string | null;
+  notas_courier?: string | null; creado_por_agente: boolean;
+  confirmada_por_id?: number | null; fecha_confirmacion?: string | null;
+  motivo_rechazo?: string | null; receptor_verificado: boolean;
+  recibido_por?: string | null;
   items: EntregaItem[];
 }
 

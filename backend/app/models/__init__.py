@@ -46,6 +46,7 @@ from app.models.comms import (  # noqa: F401
 )
 from app.models.delivery import (  # noqa: F401
     Conformidad,
+    CoordinacionEntrega,
     Entrega,
     EntregaItem,
     EstadoEntrega,
@@ -84,7 +85,7 @@ __all__ = [
     "TipoAlerta", "SeveridadAlerta", "EstadoAlerta",
     "TipoImprevisto", "EstadoImprevisto", "MotivoEscalamiento", "PrioridadCaso", "EstadoCaso",
     # delivery
-    "Entrega", "EntregaItem", "Conformidad", "ReglaNegocio",
+    "Entrega", "EntregaItem", "Conformidad", "CoordinacionEntrega", "ReglaNegocio",
     "TipoEntrega", "EstadoEntrega", "ResultadoConformidad", "TipoValorRegla",
     # analytics
     "DimTiempo", "DimCanal", "DimTipoImprevisto", "DimProducto", "DimHito", "DimKpi",

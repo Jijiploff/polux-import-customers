@@ -28,11 +28,13 @@ class TipoEntrega(str, enum.Enum):
 
 
 class EstadoEntrega(str, enum.Enum):
+    BORRADOR = "BORRADOR"
     PROGRAMADA = "PROGRAMADA"
     EN_RUTA = "EN_RUTA"
     ENTREGADA = "ENTREGADA"
     FALLIDA = "FALLIDA"
     REPROGRAMADA = "REPROGRAMADA"
+    RECHAZADA = "RECHAZADA"
 
 
 class ResultadoConformidad(str, enum.Enum):
@@ -89,9 +91,38 @@ class Entrega(Base, TimestampMixin, AuditUserMixin):
     )
     fecha_autorizacion: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     motivo_parcial: Mapped[str | None] = mapped_column(UnicodeText, nullable=True)
+    direccion: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
+    distrito: Mapped[str | None] = mapped_column(Unicode(120), nullable=True)
+    punto_recojo: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
+    referencia: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
+    receptor_nombre: Mapped[str | None] = mapped_column(Unicode(160), nullable=True)
+    receptor_dni: Mapped[str | None] = mapped_column(Unicode(30), nullable=True)
+    receptor_telefono: Mapped[str | None] = mapped_column(Unicode(40), nullable=True)
+    franja_horaria: Mapped[str | None] = mapped_column(Unicode(40), nullable=True)
+    notas_courier: Mapped[str | None] = mapped_column(UnicodeText, nullable=True)
+    creado_por_agente: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    confirmada_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"), nullable=True)
+    fecha_confirmacion: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    motivo_rechazo: Mapped[str | None] = mapped_column(UnicodeText, nullable=True)
+    receptor_verificado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    recibido_por: Mapped[str | None] = mapped_column(Unicode(200), nullable=True)
 
     pedido = relationship("Pedido", back_populates="entregas")
     items = relationship("EntregaItem", back_populates="entrega", cascade="all, delete-orphan")
+
+
+class CoordinacionEntrega(Base, TimestampMixin):
+    """Estado persistente del asistente de coordinación por Telegram."""
+    __tablename__ = "coordinacion_entrega"
+    __table_args__ = (UniqueConstraint("chat_id", name="uq_coordinacion_entrega_chat"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[str] = mapped_column(Unicode(40), nullable=False)
+    pedido_id: Mapped[int] = mapped_column(ForeignKey("pedido.id"), nullable=False, index=True)
+    fase: Mapped[str] = mapped_column(Unicode(30), nullable=False)
+    datos: Mapped[str] = mapped_column(UnicodeText, nullable=False, default="{}")
+
+    pedido = relationship("Pedido")
 
 
 class EntregaItem(Base, TimestampMixin):

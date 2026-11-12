@@ -51,6 +51,7 @@ export default function App() {
           <Route path="/imprevistos" element={<ImprevistosPage />} />
           <Route path="/entregas" element={<EntregasPage />} />
           <Route path="/entregas/nueva" element={<NuevaEntregaPage />} />
+          <Route path="/entregas/:id/editar" element={<NuevaEntregaPage />} />
           <Route
             path="/admin/usuarios"
             element={<RequireRole roles={["ADMIN"]}><UsuariosPage /></RequireRole>}

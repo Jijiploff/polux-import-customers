@@ -41,6 +41,9 @@ from app.models import (
     Usuario,
     UsuarioCasoActivo,
     UsuarioRol,
+    CoordinacionEntrega,
+    Entrega,
+    EstadoEntrega,
 )
 from app.schemas.agent import IncomingMessage
 from app.services.agent_service import AgentService
@@ -53,6 +56,13 @@ from app.services.caso_service import (
 )
 from app.services.telegram_service import TelegramService
 from app.services.timeline_service import build_timeline
+from app.services.delivery_conversation import (
+    cancelar as cancelar_coordinacion,
+    confirmar as confirmar_coordinacion,
+    escalar_modificacion,
+    pedido_listo_para_coordinar,
+    procesar as procesar_coordinacion,
+)
 
 logger = get_logger("telegram_handler")
 
@@ -1247,6 +1257,64 @@ def handle_telegram_callback(
     chat_id = _callback_chat_id(update)
     data = str(cq.get("data") or "")
 
+    if data.startswith("entrega:"):
+        cliente = _resolve_cliente(db, chat_id) if chat_id is not None else None
+        if cliente is None:
+            tg.answer_callback_query(cq_id, "Debes vincular primero tu pedido.", show_alert=True)
+            return {"handled": "delivery_callback_unauthorized", "chat_id": chat_id}
+        pedido = _resolve_pedido_activo(db, cliente)
+        parts = data.split(":")
+        if pedido is None or len(parts) != 3 or not parts[2].isdigit():
+            tg.answer_callback_query(cq_id, "La coordinación ya no está disponible.", show_alert=True)
+            return {"handled": "delivery_callback_invalid", "chat_id": chat_id}
+        row_id = int(parts[2])
+        if parts[1] == "confirmar":
+            if not pedido_listo_para_coordinar(db, pedido):
+                tg.answer_callback_query(
+                    cq_id,
+                    "Tu pedido aún no tiene todos los ítems listos.",
+                    show_alert=True,
+                )
+                _reply(
+                    db, tg, chat_id,
+                    "No puedo registrar la entrega todavía porque uno o más ítems aún no "
+                    "han llegado o no están listos. Te avisaremos cuando puedas coordinarla.",
+                    cliente, pedido,
+                )
+                return {"handled": "delivery_not_ready", "chat_id": chat_id}
+            entrega = confirmar_coordinacion(db, row_id)
+            msg = (
+                f"🎉 ¡Listo! Registré tu entrega del pedido {pedido.codigo}.\n"
+                "Un asesor la revisará en las próximas 2 horas hábiles."
+            )
+            _reply(db, tg, chat_id, msg, cliente, pedido)
+            aviso = (
+                f"📝 BORRADOR DE ENTREGA #{entrega.id}\n"
+                f"Pedido: {pedido.codigo}\n"
+                f"Cliente: {cliente.nombre}\n"
+                f"🚚 {entrega.modalidad.value} · "
+                f"{entrega.direccion or entrega.punto_recojo or '—'}\n"
+                f"👤 {entrega.receptor_nombre or '—'} · DNI {entrega.receptor_dni or '—'}\n"
+                f"📅 {entrega.fecha_programada:%d/%m/%Y} · {entrega.franja_horaria or '—'}\n\n"
+                "⚠️ Pendiente de validación. Revisa y confirma desde /entregas."
+            )
+            for operador_destino in db.scalars(
+                select(Usuario).where(
+                    Usuario.activo == True,  # noqa: E712
+                    Usuario.telegram_chat_id.is_not(None),
+                )
+            ).all():
+                if _usuario_roles(db, operador_destino.id) & _OPERATOR_ROLES:
+                    tg.send_message(int(operador_destino.telegram_chat_id), aviso)
+            tg.answer_callback_query(cq_id, "Entrega registrada")
+            return {"handled": "delivery_confirmed", "delivery_id": entrega.id}
+        if parts[1] == "corregir":
+            tg.answer_callback_query(cq_id, "Envíame el dato que deseas corregir.")
+            _reply(db, tg, chat_id, "Claro. Indícame qué dato deseas corregir y el valor correcto.", cliente, pedido)
+            return {"handled": "delivery_correction", "chat_id": chat_id}
+        tg.answer_callback_query(cq_id, "Acción no reconocida.")
+        return {"handled": "delivery_callback_invalid", "chat_id": chat_id}
+
     usuario = _resolve_operador(db, chat_id)
     if usuario is None:
         tg.answer_callback_query(
@@ -1447,6 +1515,65 @@ def handle_telegram_update(
             )
             if forward is not None:
                 return forward
+
+    # ---------- Coordinación de entregas guiada ----------
+    if cliente and pedido:
+        active_delivery = db.scalar(
+            select(CoordinacionEntrega).where(CoordinacionEntrega.chat_id == str(chat_id))
+        )
+        if text.strip().lower() in {
+            "cancelar", "cancela", "cancel", "/cancelar", "ya no",
+        }:
+            _log_comando(db, chat_id, text, cliente, pedido, external_id)
+            cancelled = cancelar_coordinacion(db, chat_id)
+            _reply(
+                db, tg, chat_id,
+                "✅ Coordinación cancelada. No registraré ninguna entrega. "
+                "Cuando quieras retomarla, escribe «coordinar entrega».",
+                cliente, pedido,
+            )
+            return {"handled": "delivery_coordination_cancelled", "cancelled": cancelled}
+        lower_text = text.lower()
+        wants_delivery = (
+            ("coordinar" in lower_text and "entrega" in lower_text)
+            or "programar entrega" in lower_text
+        )
+        if wants_delivery or active_delivery is not None:
+            _log_comando(db, chat_id, text, cliente, pedido, external_id)
+            if wants_delivery and active_delivery is None and not pedido_listo_para_coordinar(db, pedido):
+                _reply(
+                    db, tg, chat_id,
+                    "Aún no puedo coordinar tu entrega porque uno o más ítems de tu pedido "
+                    "todavía no han llegado o no están listos para entregar. "
+                    "Te avisaremos cuando estén disponibles; así evitamos comprometer una fecha incorrecta.",
+                    cliente, pedido,
+                )
+                return {"handled": "delivery_not_ready", "chat_id": chat_id}
+            if wants_delivery and active_delivery is None:
+                response = procesar_coordinacion(db, pedido, chat_id, text)
+                _reply(db, tg, chat_id, response[0], cliente, pedido, reply_markup=response[1])
+            else:
+                response = procesar_coordinacion(db, pedido, chat_id, text)
+                _reply(db, tg, chat_id, response[0], cliente, pedido, reply_markup=response[1])
+            return {"handled": "delivery_coordination", "chat_id": chat_id}
+
+        latest_delivery = db.scalar(
+            select(Entrega).where(Entrega.pedido_id == pedido.id)
+            .order_by(Entrega.id.desc())
+        )
+        if latest_delivery and latest_delivery.estado in {
+            EstadoEntrega.BORRADOR, EstadoEntrega.PROGRAMADA, EstadoEntrega.EN_RUTA,
+        } and any(term in text.lower() for term in ("me equivoqué", "me equivoque", "era otra", "cambiar la dirección")):
+            _log_comando(db, chat_id, text, cliente, pedido, external_id)
+            caso = escalar_modificacion(db, pedido, text, latest_delivery)
+            notify_operator_new_caso(caso, pedido, telegram=tg, db=db)
+            _reply(
+                db, tg, chat_id,
+                "Entiendo. Como ya confirmaste la entrega, un asesor debe modificarla desde el sistema. "
+                "Lo he escalado con prioridad alta y te contactará en menos de 2 horas hábiles.",
+                cliente, pedido,
+            )
+            return {"handled": "delivery_change_escalated", "caso_id": caso.id}
 
     if not cliente and operador is not None:
         _log_comando(db, chat_id, text, None, None, external_id)

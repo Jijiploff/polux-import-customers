@@ -41,16 +41,28 @@ export function EntregasPage() {
   const [confs, setConfs] = useState<Record<number, ConfForm>>({});
   const [modalError, setModalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [detalle, setDetalle] = useState<Entrega | null>(null);
 
   useEffect(() => {
     pedidosApi.list({ size: 100 }).then((p) => setPedidos(p.items));
   }, []);
 
   async function reload() {
-    if (!pedidoId) { setEntregas([]); return; }
-    setEntregas(await entregasApi.listByPedido(Number(pedidoId)));
+    setEntregas(await entregasApi.listByPedido(pedidoId ? Number(pedidoId) : undefined));
   }
   useEffect(() => { reload(); }, [pedidoId]);
+
+  async function confirmar(e: Entrega) {
+    try { await entregasApi.confirmar(e.id); await reload(); }
+    catch (err) { setModalError(err instanceof Error ? err.message : String(err)); }
+  }
+
+  async function rechazar(e: Entrega) {
+    const motivo = window.prompt("Motivo del rechazo");
+    if (!motivo?.trim()) return;
+    try { await entregasApi.rechazar(e.id, motivo); await reload(); }
+    catch (err) { setModalError(err instanceof Error ? err.message : String(err)); }
+  }
 
   async function openCompletar(e: Entrega) {
     setCompletar(e);
@@ -111,7 +123,7 @@ export function EntregasPage() {
             <option key={p.id} value={p.id}>{p.codigo} · {p.estado_actual}</option>
           ))}
         </select>
-        {canOperate && (
+        {canOperate && pedidoId && (
           <Link to={`/entregas/nueva${pedidoId ? `?pedido_id=${pedidoId}` : ""}`}>
             <button disabled={!pedidoId}>Programar nueva entrega</button>
           </Link>
@@ -121,11 +133,13 @@ export function EntregasPage() {
         rows={entregas}
         columns={[
           { key: "id", header: "#", render: (e) => e.id },
+          { key: "pedido", header: "Pedido", render: (e) => pedidos.find(p => p.id === e.pedido_id)?.codigo || `#${e.pedido_id}` },
           { key: "tipo", header: "Tipo", render: (e) => <StatusBadge value={e.tipo} /> },
           { key: "mod", header: "Modalidad", render: (e) => e.modalidad },
           { key: "est", header: "Estado", render: (e) => <StatusBadge value={e.estado} /> },
+          { key: "origen", header: "Origen", render: (e) => e.creado_por_agente ? "IA · pendiente revisión" : "Operador" },
           { key: "fecha", header: "Programada",
-            render: (e) => new Date(e.fecha_programada).toLocaleString() },
+            render: (e) => new Date(e.fecha_programada).toLocaleDateString() },
           { key: "items", header: "Ítems", render: (e) => e.items?.length ?? 0 },
           { key: "autoriza", header: "Autorización",
             render: (e) => e.tipo === "PARCIAL" ? (
@@ -134,15 +148,34 @@ export function EntregasPage() {
               </span>
             ) : "—" },
           { key: "acc", header: "Acciones",
-            render: (e) => canOperate && (e.estado === "PROGRAMADA" || e.estado === "EN_RUTA") ? (
-              <button onClick={() => openCompletar(e)}>Completar</button>
-            ) : e.estado === "ENTREGADA" ? (
-              <span style={{ color: "#16a34a", fontSize: "0.8rem" }}>
-                entregada {e.fecha_real ? new Date(e.fecha_real).toLocaleDateString() : ""}
-              </span>
-            ) : "—" },
+            render: (e) => (
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                <button onClick={() => setDetalle(e)}>Ver</button>
+                {canOperate && e.estado !== "ENTREGADA" && e.estado !== "FALLIDA" &&
+                  <Link to={`/entregas/${e.id}/editar`}><button>Editar</button></Link>}
+                {canOperate && e.estado === "BORRADOR" && <>
+                  <button onClick={() => confirmar(e)}>Confirmar</button>
+                  <button onClick={() => rechazar(e)}>Rechazar</button>
+                </>}
+                {canOperate && (e.estado === "PROGRAMADA" || e.estado === "EN_RUTA") &&
+                  <button onClick={() => openCompletar(e)}>Completar</button>}
+              </div>
+            ) },
         ]}
       />
+
+      <Modal open={detalle !== null} title={`Entrega #${detalle?.id ?? ""}`} onClose={() => setDetalle(null)}>
+        {detalle && <div>
+          <p><strong>Estado:</strong> {detalle.estado} {detalle.creado_por_agente ? "(creada por IA)" : ""}</p>
+          <p><strong>Pedido:</strong> {pedidos.find(p => p.id === detalle.pedido_id)?.codigo || `#${detalle.pedido_id}`}</p>
+          <p><strong>Modalidad:</strong> {detalle.modalidad}</p>
+          <p><strong>Ubicación:</strong> {detalle.direccion || detalle.punto_recojo || "—"} · {detalle.distrito || detalle.referencia || ""}</p>
+          <p><strong>Receptor:</strong> {detalle.receptor_nombre || "—"} · DNI {detalle.receptor_dni || "—"} · {detalle.receptor_telefono || "—"}</p>
+          <p><strong>Fecha:</strong> {new Date(detalle.fecha_programada).toLocaleDateString()} · {detalle.franja_horaria || "—"}</p>
+          {detalle.motivo_rechazo && <p style={{ color: "crimson" }}><strong>Rechazo:</strong> {detalle.motivo_rechazo}</p>}
+          {canOperate && detalle.estado === "BORRADOR" && <button onClick={() => { setDetalle(null); confirmar(detalle); }}>Confirmar y programar</button>}
+        </div>}
+      </Modal>
 
       <Modal
         open={completar !== null}
