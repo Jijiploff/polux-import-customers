@@ -175,7 +175,7 @@ atrasados, casos/imprevistos abiertos, alertas activas) y `eventos` con
 | POST | `/casos/{caso_id}/responder` | Responder al cliente desde la plataforma; el primer operador queda como responsable y el mensaje sale por Telegram (400 `sin_telegram` si el cliente no vinculó su chat). ADMIN puede responder casos ajenos sin cambiar al responsable | OPERADOR+ |
 | POST | `/casos/{caso_id}/cerrar` | Cerrar el caso y avisar al cliente por Telegram si está vinculado | OPERADOR+ |
 | POST | `/casos/{caso_id}/reasignar` | ADMIN asigna/reasigna a otro ADMIN/OPERADOR o libera (`responsable_id=null`); un OPERADOR sólo puede liberar un caso propio. Genera un mensaje `OPERATIVO` y avisa al nuevo responsable por Telegram | OPERADOR+ |
-| PATCH | `/casos/{caso_id}` | Primera acción, cambio de estado. No cambia `responsable_id`: usa `/reasignar` para que quede auditado y notificado | OPERADOR+ |
+| PATCH | `/casos/{caso_id}` | Primera acción (`registrar_primera_accion`): registra la fecha y, si el caso está libre, lo asigna a quien la ejecuta; si ya tiene responsable, lo conserva. No acepta `responsable_id`: usa `/reasignar` para asignar, reasignar o liberar con auditoría y notificación | OPERADOR+ |
 
 ### Imprevistos
 

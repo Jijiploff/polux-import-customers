@@ -306,8 +306,10 @@ sequenceDiagram
   reasignar, liberar y cerrar cualquier caso.
 - `OPERADOR` ve en **Contestador** solo los chats de casos asignados a él.
   En **Casos** ve los asignados + los libres para poder reclamarlos.
-- El **primer operador** que responde un caso libre queda como
-  `responsable_id`; los demás reciben `409` para evitar duplicados.
+- El **primer operador** que responde o registra la **primera acción**
+  en un caso libre queda como `responsable_id`; los demás reciben `409`
+  para evitar duplicados. Si el caso ya tiene responsable, la primera
+  acción conserva la asignación.
 - Un operador puede **liberar** su propio caso (`responsable_id=null`) para
   que otro lo tome. La liberación conserva historial, primera acción y
   estado, y queda auditada como `OPERATIVO`.
@@ -324,7 +326,11 @@ sequenceDiagram
   enviar su código de pedido + DNI al bot para vincular el chat.
 - La respuesta humana activa el mismo cortapisa de §7.1
   (`_human_in_progress`, `AGENT_RECENT_HUMAN_RESPONSE_MINUTES=10`):
-  durante ese lapso el agente **no** responde y la UI lo indica.
+  durante ese lapso el agente **no** responde y la UI lo indica. El
+  cortapisa **no** aplica a mensajes humanos asociados a un caso ya
+  cerrado: al cerrar el caso, el agente retoma la conversación de
+  inmediato. Los mensajes sin caso o de un caso activo sí mantienen la
+  pausa.
 
 **Cotas del LLM en la práctica:** cada mensaje de cliente puede costar
 hasta 4 llamadas (clasificar + redactar, cada una con reintento al modelo

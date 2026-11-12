@@ -128,8 +128,27 @@ export function CasosPage() {
   }
 
   async function registrarPrimeraAccion(id: number) {
-    await casosApi.actualizar(id, { registrar_primera_accion: true });
-    load();
+    setAccionError("");
+    setAccionAviso("");
+    try {
+      const caso = await casosApi.actualizar(id, {
+        registrar_primera_accion: true,
+      });
+      setAccionAviso(
+        caso.responsable_nombre
+          ? `Primera acción registrada. Caso asignado a ${caso.responsable_nombre}.`
+          : "Primera acción registrada.",
+      );
+      // La primera acción mueve el caso a EN_PROCESO. Si el mantenedor está
+      // filtrado por ABIERTO, cambiamos el filtro para que no desaparezca.
+      if (estado === "ABIERTO") {
+        setEstado("EN_PROCESO");
+      } else {
+        await load();
+      }
+    } catch (err) {
+      setAccionError(mensajeError(err));
+    }
   }
 
   async function cerrar(id: number) {

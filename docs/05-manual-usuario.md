@@ -207,9 +207,13 @@ reclamos, retrasos graves, etc.
    DNI** y vuelve a intentarlo.
 5. La **primera respuesta** registra automáticamente *cuándo* atendiste
    (esto mide el indicador *Tiempo respuesta escalados*). También puedes
-   marcarla manualmente con **Primera acción**.
+   marcarla manualmente con **Primera acción**: si el caso está libre,
+   queda asignado a ti. Si estabas viendo los casos **Abiertos**, el
+   mantenedor pasa al filtro **En proceso** para que el caso no
+   desaparezca de la lista.
 6. Cuando el problema quede resuelto, haz clic en **Cerrar**; el caso
-   pasa a cerrado y se avisa al cliente por Telegram si está vinculado.
+   pasa a cerrado, se avisa al cliente por Telegram si está vinculado y
+   el agente vuelve a responder automáticamente los siguientes mensajes.
 
 > 🔒 Los mensajes internos del sistema (comandos, avisos a operadores,
 > confirmaciones) no se mezclan con la conversación del cliente. Puedes
@@ -471,6 +475,7 @@ El menú **Contestador** es la bandeja de trabajo diaria:
 4. El **primer operador** que responde queda como responsable y el caso
    pasa a **En proceso**. Si otro operador intenta responder después,
    verá *«Otro operador ya tomó este caso»* y no podrá enviar.
+   **Primera acción** también reclama el caso libre para quien la pulsa.
 5. Usa **Ver la línea de tiempo del pedido** dentro de la misma ventana
    para revisar hitos, casos, imprevistos, entregas y alertas.
 
@@ -488,7 +493,9 @@ para auditoría, pero el caso **no** se asigna.
 Cuando el problema esté resuelto, pulsa **Cerrar** en la fila del caso.
 El caso pasa a **Cerrado** y, si el cliente tiene Telegram, recibe el
 aviso de cierre. Todo queda en la línea de tiempo y en
-**Comunicaciones**.
+**Comunicaciones**. Al cerrar el caso, el **agente retoma la conversación**
+de inmediato: los siguientes mensajes del cliente vuelven a responderse
+automáticamente, sin esperar los 10 minutos de la pausa humana.
 
 ### 13.5 Liberar o reasignar un caso
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -644,17 +644,32 @@ class AgentService:
     # Helpers
     # =================================================================
     def _human_in_progress(self, pedido_id: int) -> bool:
-        """¿Un operador respondió en los últimos N minutos?"""
+        """¿Un operador respondió recientemente y sigue a cargo del caso?
+
+        Los mensajes humanos asociados a un caso ya cerrado no pausan al
+        agente: al cerrar el caso, el agente retoma la conversación. Los
+        mensajes sin caso o de un caso todavía activo sí mantienen la pausa.
+        """
         minutes = self.settings.AGENT_RECENT_HUMAN_RESPONSE_MINUTES
         if minutes <= 0:
             return False
         limite = datetime.utcnow() - timedelta(minutes=minutes)
+        casos_activos = select(CasoEscalamiento.id).where(
+            CasoEscalamiento.pedido_id == pedido_id,
+            CasoEscalamiento.estado.in_(
+                [EstadoCaso.ABIERTO, EstadoCaso.EN_PROCESO]
+            ),
+        )
         row = self.db.scalar(
             select(Comunicacion.id).where(
                 Comunicacion.pedido_id == pedido_id,
                 Comunicacion.direccion == DireccionComunicacion.SALIENTE,
                 Comunicacion.autor == AutorComunicacion.HUMANO,
                 Comunicacion.fecha >= limite,
+                or_(
+                    Comunicacion.caso_id.is_(None),
+                    Comunicacion.caso_id.in_(casos_activos),
+                ),
             ).limit(1)
         )
         return row is not None

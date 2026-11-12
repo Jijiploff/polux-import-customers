@@ -108,6 +108,32 @@ test("permite responder un caso desde la plataforma", async () => {
   expect(vi.mocked(agentModule.agentApi.thread)).toHaveBeenCalledWith(21);
 });
 
+test("la primera acción mantiene visible el caso al pasar a en proceso", async () => {
+  vi.mocked(casosModule.casosApi.actualizar).mockResolvedValueOnce({
+    ...CASO,
+    estado: "EN_PROCESO",
+    fecha_primera_accion: "2026-11-11T12:00:00",
+    responsable_id: 1,
+    responsable_nombre: "Operador",
+  } as never);
+
+  renderPage();
+  expect(await screen.findByText("RECLAMO")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /Primera acción/i }));
+
+  await waitFor(() => {
+    expect(vi.mocked(casosModule.casosApi.actualizar)).toHaveBeenCalledWith(
+      7, { registrar_primera_accion: true },
+    );
+  });
+  expect(await screen.findByText(/Caso asignado a Operador/i)).toBeInTheDocument();
+  await waitFor(() => {
+    expect(vi.mocked(casosModule.casosApi.list)).toHaveBeenLastCalledWith({
+      estado: "EN_PROCESO",
+    });
+  });
+});
+
 test("bloquea la respuesta si el cliente no tiene Telegram", async () => {
   vi.mocked(casosModule.casosApi.detalle).mockResolvedValueOnce({
     ...CASO,

@@ -243,6 +243,50 @@ def test_no_responde_si_humano_respondio_reciente(db):
         _cleanup(db, ped.id)
 
 
+def test_agente_retoma_cuando_el_caso_esta_cerrado(db):
+    ped = _mk_pedido(db)
+    caso = _mk_caso(db, ped, estado=EstadoCaso.CERRADO)
+    try:
+        # El aviso de cierre queda como mensaje humano reciente, pero al
+        # pertenecer a un caso cerrado ya no debe pausar al agente.
+        db.add(Comunicacion(
+            pedido_id=ped.id, direccion=DireccionComunicacion.SALIENTE,
+            canal=Canal.TELEGRAM, contenido="Tu caso fue cerrado.",
+            autor=AutorComunicacion.HUMANO, clase=ClaseComunicacion.CLIENTE,
+            escalado=True, caso_id=caso.id, fecha=datetime.utcnow(),
+        ))
+        db.commit()
+
+        result = AgentService(db, provider=MockProvider()).handle_incoming_message(
+            IncomingMessage(pedido_id=ped.id, contenido="Hola")
+        )
+        assert result.human_in_progress is False
+        assert result.outgoing_comunicacion_id is not None
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_agente_sigue_pausado_si_el_caso_activo_tiene_respuesta_humana(db):
+    ped = _mk_pedido(db)
+    caso = _mk_caso(db, ped)
+    try:
+        db.add(Comunicacion(
+            pedido_id=ped.id, direccion=DireccionComunicacion.SALIENTE,
+            canal=Canal.TELEGRAM, contenido="Ya estoy revisando tu caso.",
+            autor=AutorComunicacion.HUMANO, clase=ClaseComunicacion.CLIENTE,
+            escalado=True, caso_id=caso.id, fecha=datetime.utcnow(),
+        ))
+        db.commit()
+
+        result = AgentService(db, provider=MockProvider()).handle_incoming_message(
+            IncomingMessage(pedido_id=ped.id, contenido="Hola")
+        )
+        assert result.human_in_progress is True
+        assert result.outgoing_comunicacion_id is None
+    finally:
+        _cleanup(db, ped.id)
+
+
 def test_baja_confianza_escala(db):
     class LowConfProvider(LLMProvider):
         name = "low"
@@ -588,6 +632,53 @@ def test_caso_detalle_y_respuesta_local_asigna_primer_operador(
         assert r.json()["enviado"] is True
     finally:
         _cleanup(db, ped.id)
+
+
+def test_primera_accion_asigna_caso_libre_y_respeta_asignado(client, auth, db):
+    operador_id = _user_id(db, "t.oper@example.com")
+    admin_id = _user_id(db, "t.admin@example.com")
+    suf = uuid.uuid4().hex[:5]
+    ped_operador = _mk_pedido(db, suffix=f"pa1-{suf}")
+    ped_asignado = _mk_pedido(db, suffix=f"pa2-{suf}")
+    ped_admin = _mk_pedido(db, suffix=f"pa3-{suf}")
+    caso_operador = _mk_caso(db, ped_operador)
+    caso_asignado = _mk_caso(db, ped_asignado)
+    caso_asignado.responsable_id = operador_id
+    caso_admin = _mk_caso(db, ped_admin)
+    db.commit()
+    try:
+        # El operador que registra la primera acción reclama el caso libre.
+        r = client.patch(
+            f"/api/v1/casos/{caso_operador.id}",
+            headers=auth["operador"],
+            json={"registrar_primera_accion": True},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["responsable_id"] == operador_id
+        assert body["estado"] == "EN_PROCESO"
+        assert body["fecha_primera_accion"] is not None
+
+        # El admin puede apoyar sin quitarle el caso al operador responsable.
+        r = client.patch(
+            f"/api/v1/casos/{caso_asignado.id}",
+            headers=auth["admin"],
+            json={"registrar_primera_accion": True},
+        )
+        assert r.status_code == 200
+        assert r.json()["responsable_id"] == operador_id
+
+        # Si el caso está libre, el admin también queda como responsable.
+        r = client.patch(
+            f"/api/v1/casos/{caso_admin.id}",
+            headers=auth["admin"],
+            json={"registrar_primera_accion": True},
+        )
+        assert r.status_code == 200
+        assert r.json()["responsable_id"] == admin_id
+    finally:
+        for ped in (ped_operador, ped_asignado, ped_admin):
+            _cleanup(db, ped.id)
 
 
 def test_respuesta_local_sin_telegram_no_asigna_y_audita(client, auth, db):

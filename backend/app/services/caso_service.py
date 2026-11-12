@@ -75,8 +75,12 @@ def actualizar_caso(
             "Este caso está asignado a otro operador.",
         )
 
-    if payload.registrar_primera_accion and caso.fecha_primera_accion is None:
-        caso.fecha_primera_accion = datetime.utcnow()
+    if payload.registrar_primera_accion:
+        if caso.fecha_primera_accion is None:
+            caso.fecha_primera_accion = datetime.utcnow()
+        if caso.responsable_id is None:
+            # La primera acción también reclama el caso para quien la ejecuta.
+            caso.responsable_id = usuario_id
         if caso.estado == EstadoCaso.ABIERTO:
             caso.estado = EstadoCaso.EN_PROCESO
 
