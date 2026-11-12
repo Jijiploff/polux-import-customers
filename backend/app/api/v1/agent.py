@@ -337,7 +337,7 @@ def human_reply(
 )
 def provider_info():
     p = get_llm_provider()
-    return {"provider": p.name}
+    return p.status()
 
 
 @router.get(
@@ -393,6 +393,11 @@ def metrics(
     dependencies=[Depends(require_admin)],
     summary="Clasifica un texto sin ejecutar el flujo (solo ADMIN)",
 )
+@router.post(
+    "/clasificar",
+    dependencies=[Depends(require_admin)],
+    summary="Alias de /test/classify para clasificar un texto con IA",
+)
 def test_classify(payload: IncomingMessage):
     """Solo clasifica. Si el LLM remoto no está disponible (cuota, demanda),
     responde con el motor local en lugar de fallar: nunca corta la demo."""
@@ -403,6 +408,7 @@ def test_classify(payload: IncomingMessage):
             "sentiment": result.sentiment.value,
             "confidence": result.confidence,
             "provider_used": result.provider_used,
+            "model_used": result.model_used,
         }
     except Exception as exc:  # noqa: BLE001 — degradar es el comportamiento deseado
         logger.warning("test_classify_fallback err=%s", exc)

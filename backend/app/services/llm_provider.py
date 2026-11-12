@@ -7,11 +7,12 @@ Groq, Together, vLLM, Ollama, **Gemini** vía `generativelanguage.googleapis.com
 **Guardrail crítico**: el provider SOLO clasifica y redacta. El motor de reglas
 y los datos reales son responsabilidad de `AgentService`.
 
-**Cortesía con la cuota del proveedor** (`RateGuard`): los planes gratuitos
-limitan ~5 llamadas/minuto (RPM) y ~20/día (RPD). El provider nunca supera el
-RPM (ventana deslizante), entra en reposo automático tras un 429 y en
-cualquier fallo se propaga el error para que `AgentService` use el motor local
-(mock): la atención al cliente nunca se corta.
+**Cortesía con la cuota del proveedor** (`RateGuard`): Gemini free tier limita
+por modelo las llamadas por minuto (RPM), los tokens por minuto (TPM) y las
+llamadas por día (RPD). El provider reserva cuota por modelo en una ventana
+deslizante, entra en reposo tras un 429 y prueba el modelo de respaldo antes de
+caer al motor local. Cualquier fallo se propaga como `LLMNoDisponible` para que
+`AgentService` use el motor local (mock): la atención al cliente nunca se corta.
 """
 from __future__ import annotations
 
@@ -22,7 +23,9 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
+from pathlib import Path
 
 import httpx
 
@@ -71,6 +74,7 @@ class ClassificationResult:
     confidence: float
     raw: dict | None = None
     provider_used: str = "mock"
+    model_used: str = ""
 
 
 class LLMProvider(ABC):
@@ -83,6 +87,10 @@ class LLMProvider(ABC):
     @abstractmethod
     def compose_response(self, intent: Intent, facts: dict) -> str:
         ...
+
+    def status(self) -> dict:
+        """Estado mínimo del motor (las implementaciones reales lo amplían)."""
+        return {"provider": self.name, "model": self.name, "limits": {}, "usage": {}}
 
 
 # =========================================================================
@@ -154,10 +162,12 @@ class MockProvider(LLMProvider):
         )
         return ClassificationResult(
             intent=intent, sentiment=sentiment, confidence=0.95,
-            raw={"provider": "mock"}, provider_used="mock",
+            raw={"provider": "mock"}, provider_used="mock", model_used="mock",
         )
 
     def compose_response(self, intent: Intent, facts: dict) -> str:
+        if facts.get("knowledge_answer"):
+            return str(facts["knowledge_answer"])
         nombre = facts.get("cliente_nombre", "")
         if intent == Intent.SALUDO:
             return (
@@ -199,49 +209,178 @@ class MockProvider(LLMProvider):
 # =========================================================================
 # OpenAI-compatible
 # =========================================================================
-class RateGuard:
-    """Cortesía con los límites del proveedor (RPM / reposo por 429).
+@dataclass
+class _EstadoCuotaModelo:
+    """Consumo de un modelo concreto (la cuota de Gemini es por modelo)."""
 
-    - Ventana deslizante de 60 s: no se hacen más de `LLM_RPM` llamadas por
-      minuto (classify y compose comparten el contador).
-    - Tras un 429 (cuota RPM o RPD agotada) entra en reposo durante
-      `LLM_COOLDOWN_SECONDS` y NO se vuelve a llamar: no tiene sentido
-      reintentar contra una cuota ya consumida.
+    dia: date
+    llamadas_minuto: deque[float] = field(default_factory=deque)
+    tokens_minuto: deque[tuple[float, int]] = field(default_factory=deque)
+    llamadas_dia: int = 0
+    tokens_dia: int = 0
+    reposo_hasta: float = 0.0
+
+
+class RateGuard:
+    """Cortesía con los límites del proveedor por modelo.
+
+    Gemini free tier limita RPM, TPM y RPD **por modelo**. Este guard:
+    - usa una ventana deslizante de 60 s para RPM y TPM;
+    - lleva un contador diario UTC para RPD;
+    - entra en reposo solo para el modelo que devolvió 429, de modo que el
+      modelo de respaldo puede seguir atendiendo;
+    - opcionalmente persiste el consumo diario en JSON para sobrevivir a
+      reinicios del proceso (``LLM_QUOTA_STATE_PATH``).
     """
 
-    def __init__(self, ventana_segundos: float = 60.0):
+    def __init__(self, ventana_segundos: float = 60.0,
+                 state_path: str | None = None):
         self._lock = threading.Lock()
-        self._ventana = ventana_segundos
-        self._llamadas: deque[float] = deque()
-        self._reposo_hasta = 0.0
+        self._ventana = max(0.001, ventana_segundos)
+        self._modelos: dict[str, _EstadoCuotaModelo] = {}
+        self._state_path = Path(state_path) if state_path else None
+        self._cargar()
 
-    def intentar(self, rpm: int) -> str | None:
-        """Reserva una llamada. Devuelve `None` si se permite o el motivo de bloqueo."""
+    @staticmethod
+    def _hoy() -> date:
+        return datetime.now(timezone.utc).date()
+
+    def _estado(self, modelo: str) -> _EstadoCuotaModelo:
+        hoy = self._hoy()
+        estado = self._modelos.get(modelo)
+        if estado is None or estado.dia != hoy:
+            estado = _EstadoCuotaModelo(dia=hoy)
+            self._modelos[modelo] = estado
+        return estado
+
+    @staticmethod
+    def _limpiar_ventana(estado: _EstadoCuotaModelo, ahora: float,
+                         ventana: float) -> None:
+        while estado.llamadas_minuto and ahora - estado.llamadas_minuto[0] > ventana:
+            estado.llamadas_minuto.popleft()
+        while estado.tokens_minuto and ahora - estado.tokens_minuto[0][0] > ventana:
+            estado.tokens_minuto.popleft()
+
+    def intentar(
+        self,
+        rpm: int,
+        tpm: int | None = None,
+        rpd: int | None = None,
+        tokens: int = 0,
+        modelo: str = "default",
+        ahora: float | None = None,
+    ) -> str | None:
+        """Reserva una llamada en el modelo indicado.
+
+        Devuelve ``None`` si se permite o el motivo de bloqueo
+        (``rpm_excedido``, ``tpm_excedido``, ``rpd_excedido`` o
+        ``reposo_por_429``). No muta el contador cuando bloquea.
+        """
         with self._lock:
-            now = time.monotonic()
-            if now < self._reposo_hasta:
+            now = time.monotonic() if ahora is None else ahora
+            estado = self._estado(modelo)
+            if now < estado.reposo_hasta:
                 return "reposo_por_429"
-            while self._llamadas and now - self._llamadas[0] > self._ventana:
-                self._llamadas.popleft()
-            if len(self._llamadas) >= max(1, rpm):
+            self._limpiar_ventana(estado, now, self._ventana)
+
+            if len(estado.llamadas_minuto) >= max(1, rpm):
                 return "rpm_excedido"
-            self._llamadas.append(now)
+
+            tokens = max(0, int(tokens))
+            tokens_ventana = sum(t for _, t in estado.tokens_minuto)
+            if tpm and tokens_ventana + tokens > tpm:
+                return "tpm_excedido"
+            if rpd and estado.llamadas_dia >= rpd:
+                return "rpd_excedido"
+
+            estado.llamadas_minuto.append(now)
+            estado.tokens_minuto.append((now, tokens))
+            estado.llamadas_dia += 1
+            estado.tokens_dia += tokens
+            self._guardar()
             return None
 
-    def reposo(self, segundos: float) -> None:
-        """Entra en reposo (p. ej. 60 s tras un 429) y limpia la ventana."""
+    def reposo(self, segundos: float, modelo: str = "default") -> None:
+        """Marca un modelo en reposo (p. ej. 60 s tras un 429)."""
         with self._lock:
-            self._reposo_hasta = time.monotonic() + max(0.0, segundos)
-            self._llamadas.clear()
+            estado = self._estado(modelo)
+            estado.reposo_hasta = time.monotonic() + max(0.0, segundos)
 
     @property
     def en_reposo(self) -> bool:
         with self._lock:
-            return time.monotonic() < self._reposo_hasta
+            now = time.monotonic()
+            return any(now < e.reposo_hasta for e in self._modelos.values())
+
+    def uso_modelo(self, modelo: str = "default") -> dict:
+        """Consumo actual de un modelo (para diagnóstico/``/agent/provider``)."""
+        with self._lock:
+            estado = self._estado(modelo)
+            now = time.monotonic()
+            self._limpiar_ventana(estado, now, self._ventana)
+            return {
+                "llamadas_minuto": len(estado.llamadas_minuto),
+                "tokens_minuto": sum(t for _, t in estado.tokens_minuto),
+                "llamadas_dia": estado.llamadas_dia,
+                "tokens_dia": estado.tokens_dia,
+                "en_reposo": now < estado.reposo_hasta,
+                "reposo_restante_segundos": round(
+                    max(0.0, estado.reposo_hasta - now), 1
+                ),
+            }
+
+    def uso(self) -> dict[str, dict]:
+        with self._lock:
+            modelos = sorted(self._modelos)
+        return {modelo: self.uso_modelo(modelo) for modelo in modelos}
+
+    # ------------------------------------------------------------------
+    # Persistencia opcional del contador diario (RPD)
+    # ------------------------------------------------------------------
+    def _cargar(self) -> None:
+        if not self._state_path or not self._state_path.exists():
+            return
+        try:
+            data = json.loads(self._state_path.read_text(encoding="utf-8"))
+            if data.get("fecha") != str(self._hoy()):
+                return
+            for modelo, item in (data.get("modelos") or {}).items():
+                self._modelos[str(modelo)] = _EstadoCuotaModelo(
+                    dia=self._hoy(),
+                    llamadas_dia=max(0, int(item.get("llamadas_dia", 0))),
+                    tokens_dia=max(0, int(item.get("tokens_dia", 0))),
+                )
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("llm_quota_state_no_leido err=%s", exc)
+
+    def _guardar(self) -> None:
+        if not self._state_path:
+            return
+        hoy = self._hoy()
+        data = {
+            "fecha": str(hoy),
+            "modelos": {
+                modelo: {
+                    "llamadas_dia": estado.llamadas_dia,
+                    "tokens_dia": estado.tokens_dia,
+                }
+                for modelo, estado in self._modelos.items()
+                if estado.dia == hoy
+            },
+        }
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._state_path.with_suffix(self._state_path.suffix + ".tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(self._state_path)
+        except OSError as exc:
+            logger.warning("llm_quota_state_no_guardado err=%s", exc)
 
 
 # Estado compartido entre instancias del provider (se crea uno por mensaje).
-_guard = RateGuard()
+_guard = RateGuard(
+    state_path=(get_settings().LLM_QUOTA_STATE_PATH or "").strip() or None
+)
 
 _CLASSIFY_SYSTEM = (
     "Eres un clasificador de mensajes de clientes de Polux Import "
@@ -263,6 +402,18 @@ _CLASSIFY_SYSTEM = (
 )
 
 
+def _estimar_tokens(messages: list[dict], max_tokens: int) -> int:
+    """Estimación conservadora para TPM sin gastar una llamada extra.
+
+    Gemini ronda 4 caracteres por token, pero el español y el JSON pueden
+    consumir más. Usamos 3 caracteres/token, sumamos el máximo de salida y un
+    margen por mensaje. Sobreestimar es preferible a superar el TPM real.
+    """
+    texto = "".join(str(m.get("content") or "") for m in messages)
+    entrada = max(1, (len(texto) + 2) // 3)
+    return entrada + max(0, int(max_tokens)) + 32 * len(messages) + 64
+
+
 class OpenAIProvider(LLMProvider):
     name = "openai"
 
@@ -270,15 +421,51 @@ class OpenAIProvider(LLMProvider):
         s = get_settings()
         self.api_key = s.LLM_API_KEY
         self.base_url = s.LLM_BASE_URL.rstrip("/")
-        self.model = s.LLM_MODEL
+        self.model = (s.LLM_MODEL or "").strip()
         self.timeout = s.LLM_TIMEOUT_SECONDS        # presupuesto TOTAL (reintentos incluidos)
         self.max_tokens = s.LLM_MAX_TOKENS
         self.retries = max(0, s.LLM_MAX_RETRIES)
         self.rpm = max(1, s.LLM_RPM)
+        self.tpm = max(0, s.LLM_TPM)
+        self.rpd = max(0, s.LLM_RPD)
         self.cooldown = s.LLM_COOLDOWN_SECONDS
-        self.fallback_model = (s.LLM_MODEL_FALLBACK or "").strip()
+        # El respaldo admite una lista separada por comas; se prueba en orden.
+        fallbacks = [m.strip() for m in (s.LLM_MODEL_FALLBACK or "").split(",")]
         if "generativelanguage.googleapis.com" in self.base_url:
             self.name = "gemini"
+            # Garantiza por lo menos 3 alternativas probadas antes del fallback determinista
+            for cand in ("gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-flash-lite-latest", "gemini-3.6-flash"):
+                if cand != self.model and cand not in fallbacks:
+                    fallbacks.append(cand)
+                if len(fallbacks) >= 3:
+                    break
+
+        self.fallback_models = [m for m in fallbacks if m and m != self.model]
+
+
+
+
+        self.fallback_model = self.fallback_models[0] if self.fallback_models else ""
+        self.model_chain = list(dict.fromkeys([self.model, *self.fallback_models]))
+        self.last_model = self.model
+        if "generativelanguage.googleapis.com" in self.base_url:
+            self.name = "gemini"
+
+    def status(self) -> dict:
+        return {
+            "provider": self.name,
+            "model": self.model,
+            "fallback_models": list(self.fallback_models),
+            "limits": {
+                "rpm": self.rpm,
+                "tpm": self.tpm,
+                "rpd": self.rpd,
+                "cooldown_seconds": self.cooldown,
+            },
+            "usage": {
+                modelo: _guard.uso_modelo(modelo) for modelo in self.model_chain
+            },
+        }
 
     def classify(self, message: str, context: dict | None = None) -> ClassificationResult:
         user = message
@@ -298,7 +485,7 @@ class OpenAIProvider(LLMProvider):
         confidence = _safe_confidence(data.get("confidence"))
         return ClassificationResult(
             intent=intent, sentiment=sentiment, confidence=confidence,
-            raw=data, provider_used=self.name,
+            raw=data, provider_used=self.name, model_used=self.last_model,
         )
 
     def compose_response(self, intent: Intent, facts: dict) -> str:
@@ -314,10 +501,12 @@ class OpenAIProvider(LLMProvider):
             "- NO repitas el teléfono ni el correo del cliente.\n"
             "- Si el cliente pide entrega parcial, reclama o reporta un daño, indica "
             "que un asesor lo contactará.\n"
+            "- Responde preguntas generales usando únicamente CONOCIMIENTO_EMPRESA.\n"
         )
         user = (
             f"INTENCIÓN: {intent.value}\n"
             f"DATOS:\n{json.dumps(facts, ensure_ascii=False, indent=2)}\n\n"
+            f"CONOCIMIENTO_EMPRESA:\n{facts.get('knowledge_context', '')}\n\n"
             "Redacta el mensaje:"
         )
         return self._chat(
@@ -328,96 +517,157 @@ class OpenAIProvider(LLMProvider):
 
     def _chat(self, *, messages: list[dict], response_format: dict | None = None,
               max_tokens: int = 400) -> str:
-        """Una llamada a Chat Completions, frugal con la cuota del proveedor.
+        """Llama a Chat Completions con cuota por modelo y respaldo ordenado.
 
-        Orden de protección: reposo por 429 → ventana RPM → 1 reintento ante
-        5xx → presupuesto total de tiempo. Cualquier fallo lanza
-        `LLMNoDisponible` (o el error de HTTP) para que el caller use el motor
-        local: nunca se reintenta contra una cuota agotada.
+        Protecciones, en orden:
+        1. reserva RPM/TPM/RPD **del modelo** antes de cada intento;
+        2. 429 → reposo de ese modelo y se prueba el siguiente;
+        3. 404 / 400 / 5xx → se prueba el siguiente modelo de la cadena;
+        4. 401/403 → error de credenciales (no se insiste);
+        5. cualquier fallo final lanza `LLMNoDisponible` para que
+           `AgentService` responda con el motor local.
         """
         if not self.api_key:
             raise LLMNoDisponible("LLM_API_KEY no configurada")
+        if not self.model_chain:
+            raise LLMNoDisponible("LLM_MODEL no configurado")
 
-        motivo = _guard.intentar(self.rpm)
-        if motivo:
-            # No se gasta ni una llamada más: el motor local responde.
-            raise LLMNoDisponible(f"llm_limitado motivo={motivo} rpm={self.rpm}")
-
-        body = {"model": self.model, "messages": messages,
-                "temperature": 0.2, "max_tokens": max_tokens}
-        if response_format:
-            body["response_format"] = response_format
+        tokens_estimados = _estimar_tokens(messages, max_tokens)
         headers = {"Authorization": f"Bearer {self.api_key}",
                    "Content-Type": "application/json"}
         url = f"{self.base_url}/chat/completions"
-
         deadline = time.monotonic() + self.timeout
-        # intentos = reintento transitorio + 1 intento extra si hay modelo respaldo
-        intentos = self.retries + 1 + (1 if self.fallback_model else 0)
         ultimo_error: Exception | None = None
-        sin_response_format = False
-        en_modelo_respaldo = False
 
-        for intento in range(1, intentos + 1):
-            restante = deadline - time.monotonic()
-            if restante < 1.0:
+        for model in self.model_chain:
+            if time.monotonic() >= deadline:
                 break
-            try:
-                with httpx.Client(timeout=restante) as client:
-                    r = client.post(url, headers=headers, json=body)
-            except (httpx.TimeoutException, httpx.TransportError) as exc:
-                logger.warning("llm_transport_error intento=%s/%s err=%s",
-                               intento, intentos, exc)
-                ultimo_error = exc
-                continue
+            # Un intento normal + reintentos transitorios. Si el modelo no
+            # acepta response_format, se añade un intento sin él.
+            intentos = self.retries + 1 + (1 if response_format else 0)
+            formato_actual = response_format
 
-            if r.status_code == 429:
-                # Cuota RPM/RPD agotada: reposo, sin reintentos (no gastar más).
-                _guard.reposo(self.cooldown)
-                logger.warning("llm_429_reposo segundos=%s", self.cooldown)
-                raise LLMNoDisponible("429 del proveedor (cuota RPM/RPD); reposo activo")
+            for intento in range(intentos):
+                restante = deadline - time.monotonic()
+                if restante < 1.0:
+                    break
 
-            if r.status_code >= 500:
-                # Alta demanda en el modelo principal → se prueba el modelo
-                # respaldo una vez antes de caer al motor local.
-                if (not en_modelo_respaldo and self.fallback_model
-                        and self.fallback_model != body.get("model")):
-                    en_modelo_respaldo = True
-                    body["model"] = self.fallback_model
-                    logger.info("llm_modelo_respaldo primary=%s fallback=%s status=%s",
-                                self.model, self.fallback_model, r.status_code)
-                else:
-                    ultimo_error = RuntimeError(f"HTTP {r.status_code} del proveedor LLM")
-                    logger.warning("llm_5xx intento=%s/%s status=%s model=%s",
-                                   intento, intentos, r.status_code, body.get("model"))
-                if intento < intentos:
-                    time.sleep(min(1.0 * intento, max(restante, 0.0)))
-                continue
+                motivo = _guard.intentar(
+                    rpm=self.rpm, tpm=self.tpm, rpd=self.rpd,
+                    tokens=tokens_estimados, modelo=model,
+                )
+                if motivo:
+                    ultimo_error = LLMNoDisponible(
+                        f"llm_limitado model={model} motivo={motivo} "
+                        f"rpm={self.rpm} tpm={self.tpm} rpd={self.rpd}"
+                    )
+                    logger.warning(
+                        "llm_limitado model=%s motivo=%s rpm=%s tpm=%s rpd=%s",
+                        model, motivo, self.rpm, self.tpm, self.rpd,
+                    )
+                    break  # modelo sin cuota: se prueba el respaldo
 
-            if r.status_code == 400 and response_format is not None and not sin_response_format:
-                # Algún modelo no admite response_format: se reintenta sin él
-                # y el JSON se extrae con _parse_json_robust.
-                logger.info("llm_sin_response_format model=%s", self.model)
-                sin_response_format = True
-                body.pop("response_format", None)
-                continue
+                body = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "max_tokens": max_tokens,
+                }
+                if formato_actual:
+                    body["response_format"] = formato_actual
 
-            try:
-                r.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                # 4xx definitivos (auth, petición inválida): al motor local.
-                raise LLMNoDisponible(f"HTTP {r.status_code}: {exc}") from exc
+                try:
+                    tiempo_llamada = min(7.0, max(restante, 2.0))
+                    with httpx.Client(timeout=tiempo_llamada) as client:
+                        r = client.post(url, headers=headers, json=body)
+                except (httpx.TimeoutException, httpx.TransportError) as exc:
+                    ultimo_error = exc
+                    logger.warning(
+                        "llm_transport_error model=%s intento=%s/%s err=%s",
+                        model, intento + 1, intentos, exc,
+                    )
+                    if len(self.model_chain) > 1:
+                        logger.warning("llm_fallo_modelo model=%s -> saltando a siguiente modelo de respaldo", model)
+                        break
+                    if intento + 1 < intentos:
+                        time.sleep(min(1.0, max(restante, 0.0)))
+                    continue
 
-            try:
-                data = r.json()
-            except ValueError as exc:
-                raise LLMNoDisponible("Respuesta LLM no es JSON") from exc
-            try:
-                return data["choices"][0]["message"]["content"]
-            except (KeyError, IndexError, TypeError) as exc:
-                raise LLMNoDisponible("Respuesta LLM sin contenido") from exc
+                if r.status_code == 429:
+                    # Cuota de ESTE modelo agotada: reposo y siguiente modelo.
+                    _guard.reposo(self.cooldown, modelo=model)
+                    ultimo_error = LLMNoDisponible(
+                        f"429 del proveedor model={model} (cuota RPM/TPM/RPD)"
+                    )
+                    logger.warning(
+                        "llm_429_reposo model=%s segundos=%s",
+                        model, self.cooldown,
+                    )
+                    break
 
-        raise ultimo_error or LLMNoDisponible("El LLM no respondió dentro del tiempo")
+                if r.status_code in (401, 403):
+                    raise LLMNoDisponible(
+                        f"HTTP {r.status_code}: credenciales del proveedor rechazadas"
+                    )
+
+                if r.status_code == 404:
+                    ultimo_error = LLMNoDisponible(
+                        f"HTTP 404: modelo {model} no disponible"
+                    )
+                    logger.warning("llm_modelo_no_disponible model=%s", model)
+                    break
+
+                if r.status_code == 400 and formato_actual is not None:
+                    # Algunos modelos no admiten response_format. Se reintenta
+                    # sin él y el JSON se extrae con _parse_json_robust.
+                    logger.info("llm_sin_response_format model=%s", model)
+                    formato_actual = None
+                    continue
+
+                if r.status_code >= 500:
+                    ultimo_error = LLMNoDisponible(
+                        f"HTTP {r.status_code} del proveedor LLM model={model}"
+                    )
+                    logger.warning(
+                        "llm_5xx model=%s intento=%s/%s status=%s",
+                        model, intento + 1, intentos, r.status_code,
+                    )
+                    if len(self.model_chain) > 1:
+                        logger.warning("llm_fallo_modelo model=%s -> saltando a siguiente modelo de respaldo", model)
+                        break
+                    if intento + 1 < intentos:
+                        time.sleep(min(1.0, max(restante, 0.0)))
+                    continue
+
+                if r.status_code >= 400:
+                    ultimo_error = LLMNoDisponible(
+                        f"HTTP {r.status_code} del proveedor LLM model={model}"
+                    )
+                    logger.warning(
+                        "llm_4xx model=%s status=%s body=%r",
+                        model, r.status_code, r.text[:200],
+                    )
+                    break
+
+                try:
+                    data = r.json()
+                except ValueError:
+                    ultimo_error = LLMNoDisponible("Respuesta LLM no es JSON")
+                    logger.warning("llm_respuesta_no_json model=%s", model)
+                    break
+                try:
+                    content = data["choices"][0]["message"]["content"]
+                except (KeyError, IndexError, TypeError):
+                    ultimo_error = LLMNoDisponible("Respuesta LLM sin contenido")
+                    logger.warning("llm_respuesta_sin_contenido model=%s", model)
+                    break
+
+                self.last_model = model
+                return content
+
+        raise ultimo_error or LLMNoDisponible(
+            "El LLM no respondió dentro del tiempo o sin cuota disponible"
+        )
 
 
 # =========================================================================
@@ -431,8 +681,10 @@ def get_llm_provider() -> LLMProvider:
             logger.warning("LLM_API_KEY vacío; se usará MockProvider")
             return MockProvider()
         p = OpenAIProvider()
-        logger.info("llm_provider_activo name=%s model=%s rpm=%s",
-                    p.name, p.model, p.rpm)
+        logger.info(
+            "llm_provider_activo name=%s model=%s fallback=%s rpm=%s tpm=%s rpd=%s",
+            p.name, p.model, ",".join(p.fallback_models), p.rpm, p.tpm, p.rpd,
+        )
         return p
     return MockProvider()
 

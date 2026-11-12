@@ -33,6 +33,7 @@ class ClassificationRead(BaseModel):
     sentiment: str
     confidence: float
     provider_used: str
+    model_used: Optional[str] = None
 
 
 class AgentResult(BaseModel):

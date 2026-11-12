@@ -44,6 +44,7 @@ from app.models import (
 )
 from app.schemas.agent import IncomingMessage
 from app.services.agent_service import AgentService
+from app.services.knowledge_base import es_consulta_conocida
 from app.services.caso_service import (
     CasoError,
     cerrar_caso,
@@ -1448,6 +1449,21 @@ def handle_telegram_update(
                 return forward
 
     if not cliente:
+        if es_consulta_conocida(text):
+            result = AgentService(db).handle_incoming_message(
+                IncomingMessage(
+                    canal=Canal.TELEGRAM,
+                    contenido=text,
+                    whatsapp_message_id=external_id,
+                )
+            )
+            if result.response_text:
+                _reply(db, tg, chat_id, result.response_text)
+                return {
+                    "handled": "knowledge_answer",
+                    "chat_id": chat_id,
+                    "intent": result.classification.intent,
+                }
         _log_comando(db, chat_id, text, None, None, external_id)
         if operador is not None:
             _reply(db, tg, chat_id, _OPERATOR_HELP)

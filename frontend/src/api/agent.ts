@@ -6,6 +6,8 @@ export interface AgentClassification {
   sentiment: string;
   confidence: number;
   provider_used: string;
+  model_used?: string;
+  aviso?: string;
 }
 
 export interface AgentResult {
@@ -38,6 +40,8 @@ export interface ClassifyTestResult {
   sentiment: string;
   confidence: number;
   provider_used: string;
+  model_used?: string;
+  aviso?: string;
 }
 
 // ----- Bandeja e hilo de conversaciones -----
@@ -89,7 +93,13 @@ export interface HumanReplyResult {
 }
 
 export const agentApi = {
-  provider: () => api.get<{ provider: string }>("/agent/provider"),
+  provider: () =>
+    api.get<{
+      provider: string;
+      model?: string;
+      fallback_models?: string[];
+      limits?: { rpm?: number; tpm?: number; rpd?: number; cooldown_seconds?: number };
+    }>("/agent/provider"),
   metrics: (pedido_id?: number) =>
     api.get<AgentMetrics>(
       pedido_id ? `/agent/metrics?pedido_id=${pedido_id}` : "/agent/metrics",

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Mapping
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -35,8 +36,13 @@ class NotificationService:
         pedido: Pedido,
         variables: Mapping[str, object],
         usuario_id: int | None = None,
+        dedupe_key: str | None = None,
     ) -> Comunicacion | None:
         """Encola un mensaje saliente usando plantilla. Guard de consentimiento."""
+        if dedupe_key:
+            existente = self._find_dedupe(dedupe_key)
+            if existente is not None:
+                return existente
         plantilla = self.db.scalar(
             select(PlantillaMensaje).where(
                 PlantillaMensaje.codigo == codigo_plantilla,
@@ -75,9 +81,19 @@ class NotificationService:
             fecha=datetime.utcnow(),
             created_by_id=usuario_id,
             updated_by_id=usuario_id,
+            dedupe_key=dedupe_key,
         )
-        self.db.add(com)
-        self.db.flush()
+        try:
+            with self.db.begin_nested():
+                self.db.add(com)
+                self.db.flush()
+        except IntegrityError:
+            if not dedupe_key:
+                raise
+            existente = self._find_dedupe(dedupe_key)
+            if existente is None:
+                raise
+            return existente
         logger.info(
             "comunicacion_encolada pedido_id=%s plantilla=%s comunicacion_id=%s",
             pedido.id,
@@ -98,6 +114,7 @@ class NotificationService:
         caso_id: int | None = None,
         require_consent: bool = False,
         usuario_id: int | None = None,
+        dedupe_key: str | None = None,
     ) -> Comunicacion | None:
         """Registra una respuesta reactiva del agente (texto compuesto)."""
         if require_consent and not self._consentimiento_vigente(pedido.cliente):
@@ -126,9 +143,19 @@ class NotificationService:
             fecha=datetime.utcnow(),
             created_by_id=usuario_id,
             updated_by_id=usuario_id,
+            dedupe_key=dedupe_key,
         )
-        self.db.add(com)
-        self.db.flush()
+        try:
+            with self.db.begin_nested():
+                self.db.add(com)
+                self.db.flush()
+        except IntegrityError:
+            if not dedupe_key:
+                raise
+            existente = self._find_dedupe(dedupe_key)
+            if existente is None:
+                raise
+            return existente
         logger.info(
             "comunicacion_agente pedido_id=%s intent=%s escalado=%s com_id=%s",
             pedido.id, intencion, escalado, com.id,
@@ -147,10 +174,15 @@ class NotificationService:
         caso_id: int | None = None,
         require_consent: bool = False,
         usuario_id: int | None = None,
+        dedupe_key: str | None = None,
     ) -> Comunicacion | None:
         """Variante de `send_from_template` que persiste trazabilidad del agente
         (intención, sentimiento, escalado, caso_id).
         """
+        if dedupe_key:
+            existente = self._find_dedupe(dedupe_key)
+            if existente is not None:
+                return existente
         plantilla = self.db.scalar(
             select(PlantillaMensaje).where(
                 PlantillaMensaje.codigo == codigo_plantilla,
@@ -186,9 +218,19 @@ class NotificationService:
             fecha=datetime.utcnow(),
             created_by_id=usuario_id,
             updated_by_id=usuario_id,
+            dedupe_key=dedupe_key,
         )
-        self.db.add(com)
-        self.db.flush()
+        try:
+            with self.db.begin_nested():
+                self.db.add(com)
+                self.db.flush()
+        except IntegrityError:
+            if not dedupe_key:
+                raise
+            existente = self._find_dedupe(dedupe_key)
+            if existente is None:
+                raise
+            return existente
         logger.info(
             "comunicacion_agente_plantilla pedido_id=%s plantilla=%s com_id=%s",
             pedido.id, codigo_plantilla, com.id,
@@ -207,6 +249,11 @@ class NotificationService:
             .limit(1)
         )
         return row is not None
+
+    def _find_dedupe(self, dedupe_key: str) -> Comunicacion | None:
+        return self.db.scalar(
+            select(Comunicacion).where(Comunicacion.dedupe_key == dedupe_key)
+        )
 
     # --------- Helpers ---------
     @staticmethod

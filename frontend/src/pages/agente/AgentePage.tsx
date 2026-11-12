@@ -53,7 +53,9 @@ export function AgentePage() {
   }
 
   useEffect(() => {
-    agentApi.provider().then((r) => setProvider(r.provider)).catch(() => setProvider("no disponible"));
+    agentApi.provider()
+      .then((r: any) => setProvider(r.model ? `${r.provider} (${r.model})` : r.provider))
+      .catch(() => setProvider("no disponible"));
     loadMetrics();
     pedidosApi.list({ size: 50 })
       .then((r) => setPedidos(r.items ?? []))
@@ -262,7 +264,15 @@ export function AgentePage() {
                 <div>Intención: <strong>{testResult.intent}</strong></div>
                 <div>Sentimiento: <strong>{testResult.sentiment}</strong></div>
                 <div>Confianza: <strong>{(testResult.confidence * 100).toFixed(0)}%</strong></div>
-                <div style={{ color: "#64748b" }}>Motor: {testResult.provider_used}</div>
+                <div style={{ color: "#64748b" }}>
+                  Motor: {testResult.provider_used}
+                  {testResult.model_used && ` (${testResult.model_used})`}
+                </div>
+                {testResult.aviso && (
+                  <div style={{ color: "#b45309", marginTop: 4, fontSize: "0.8rem" }}>
+                    ⚠️ {testResult.aviso}
+                  </div>
+                )}
               </div>
             )}
           </section>

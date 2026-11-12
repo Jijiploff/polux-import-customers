@@ -478,3 +478,14 @@ OUTBOX_INTERVAL_SECONDS=60       # despacho de la cola
 
 **Anterior:** [`03-modelo-er.md`](03-modelo-er.md) ·
 **Siguiente:** [`05-manual-usuario.md`](05-manual-usuario.md)
+## Consultas generales y conocimiento
+
+El agente consulta la base documental [`backend/app/knowledge/empresa.md`](../backend/app/knowledge/empresa.md)
+para responder preguntas generales sobre sus capacidades, atención y entrega.
+Las consultas conocidas pueden responderse incluso antes de vincular un pedido.
+Pagos, reclamos, daños, productos incorrectos y autorizaciones siempre se
+derivan a un asesor.
+
+Las reglas que generan alertas o comunicaciones usan claves de idempotencia
+persistentes e índices únicos para que varias ejecuciones del scheduler no
+dupliquen registros.

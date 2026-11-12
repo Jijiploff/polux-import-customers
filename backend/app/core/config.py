@@ -3,7 +3,14 @@ from functools import lru_cache
 from typing import List
 
 from pydantic import Field
+from pathlib import Path
+
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+for _env_path in (Path(".env"), Path("/app/.env"), Path("../.env")):
+    if _env_path.exists():
+        load_dotenv(_env_path, override=False)
 
 
 class Settings(BaseSettings):
@@ -49,8 +56,12 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS: int = 400
     # Cortesía con los límites del proveedor (Gemini free tier: ~5 RPM / ~20 RPD)
     LLM_MAX_RETRIES: int = 1             # reintentos ante 5xx/transitorios (NUNCA ante 429)
-    LLM_RPM: int = 5                     # máx. llamadas en ventana de 60 s (ventana deslizante)
-    LLM_COOLDOWN_SECONDS: int = 60       # reposo tras 429 (cuota RPM/RPD agotada)
+    LLM_RPM: int = 12                    # máx. llamadas en ventana de 60 s (ventana deslizante)
+    LLM_TPM: int = 200_000               # máx. tokens estimados en ventana de 60 s
+    LLM_RPD: int = 450                   # máx. llamadas por día (UTC)
+    LLM_COOLDOWN_SECONDS: int = 60       # reposo del modelo tras 429
+    # Ruta opcional para persistir el consumo diario entre reinicios. Vacío = memoria.
+    LLM_QUOTA_STATE_PATH: str = ""
 
         # ---- WhatsApp Business Cloud API ----
     WHATSAPP_ENABLED: bool = False

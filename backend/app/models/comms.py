@@ -158,6 +158,13 @@ class Comunicacion(Base, TimestampMixin, AuditUserMixin):
             unique=True,
             mssql_where=text("whatsapp_message_id IS NOT NULL"),
         ),
+        Index(
+            "uq_comunicacion_dedupe_key",
+            "dedupe_key",
+            unique=True,
+            mssql_where=text("dedupe_key IS NOT NULL"),
+            sqlite_where=text("dedupe_key IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -199,6 +206,7 @@ class Comunicacion(Base, TimestampMixin, AuditUserMixin):
     whatsapp_message_id: Mapped[str | None] = mapped_column(
         Unicode(120), nullable=True
     )
+    dedupe_key: Mapped[str | None] = mapped_column(Unicode(160), nullable=True)
     escalado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     # FK a caso_escalamiento: NO ACTION (rompe el ciclo con caso.comunicacion_origen_id)
     caso_id: Mapped[int | None] = mapped_column(
@@ -219,6 +227,24 @@ class Comunicacion(Base, TimestampMixin, AuditUserMixin):
 
 class Alerta(Base, TimestampMixin, AuditUserMixin):
     __tablename__ = "alerta"
+    __table_args__ = (
+        Index(
+            "uq_alerta_hito_tipo_abierta",
+            "item_hito_id",
+            "tipo",
+            unique=True,
+            mssql_where=text("item_hito_id IS NOT NULL AND estado = 'ABIERTA'"),
+            sqlite_where=text("item_hito_id IS NOT NULL AND estado = 'ABIERTA'"),
+        ),
+        Index(
+            "uq_alerta_pedido_tipo_abierta",
+            "pedido_id",
+            "tipo",
+            unique=True,
+            mssql_where=text("item_hito_id IS NULL AND estado = 'ABIERTA'"),
+            sqlite_where=text("item_hito_id IS NULL AND estado = 'ABIERTA'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     tipo: Mapped[TipoAlerta] = mapped_column(

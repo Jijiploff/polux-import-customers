@@ -193,6 +193,15 @@ Salida esperada:
 
 El bot ya está escuchando. **Déjalo corriendo** mientras pruebas.
 
+En Docker Compose también puedes dejarlo permanente con:
+
+```cmd
+docker compose up -d telegram_poll
+```
+
+El servicio se reinicia automáticamente si el backend o el contenedor se
+reinician. No ejecutes además un segundo polling manual al mismo tiempo.
+
 > 💡 Este comando:
 > - Elimina cualquier webhook previo.
 > - Consulta mensajes cada 30 segundos.

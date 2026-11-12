@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -305,6 +306,7 @@ class RuleEngine:
             com = self.notifier.send_from_template(
                 codigo_plantilla="RETRASO_LEVE",
                 pedido=pedido,
+                dedupe_key=f"rule:RETRASO_LEVE:{ih.id}",
                 variables={
                     "cliente_nombre": pedido.cliente.nombre,
                     "pedido_codigo": pedido.codigo,
@@ -319,7 +321,7 @@ class RuleEngine:
             if com:
                 ih.notificado_cliente = True
                 ih.fecha_notificacion = self.now
-                self.db.add(
+                self._insert_alert(
                     Alerta(
                         tipo=TipoAlerta.RETRASO_LEVE,
                         pedido_id=pedido.id,
@@ -368,15 +370,7 @@ class RuleEngine:
             if pedido is None:
                 continue
 
-            self.notifier.send_from_template(
-                codigo_plantilla="RETRASO_CRITICO",
-                pedido=pedido,
-                variables={
-                    "cliente_nombre": pedido.cliente.nombre,
-                    "pedido_codigo": pedido.codigo,
-                },
-            )
-            self.db.add(
+            alerta_creada = self._insert_alert(
                 Alerta(
                     tipo=TipoAlerta.RETRASO_CRITICO,
                     pedido_id=pedido_id,
@@ -385,6 +379,17 @@ class RuleEngine:
                     estado=EstadoAlerta.ABIERTA,
                     fecha_deteccion=self.now,
                 )
+            )
+            if not alerta_creada:
+                continue
+            self.notifier.send_from_template(
+                codigo_plantilla="RETRASO_CRITICO",
+                pedido=pedido,
+                dedupe_key=f"rule:RETRASO_CRITICO:{pedido_id}",
+                variables={
+                    "cliente_nombre": pedido.cliente.nombre,
+                    "pedido_codigo": pedido.codigo,
+                },
             )
             caso = CasoEscalamiento(
                 pedido_id=pedido_id,
@@ -419,15 +424,7 @@ class RuleEngine:
             if pedido is None:
                 continue
 
-            self.notifier.send_from_template(
-                codigo_plantilla="IMPREVISTO",
-                pedido=pedido,
-                variables={
-                    "cliente_nombre": pedido.cliente.nombre,
-                    "pedido_codigo": pedido.codigo,
-                },
-            )
-            self.db.add(
+            alerta_creada = self._insert_alert(
                 Alerta(
                     tipo=TipoAlerta.IMPREVISTO,
                     pedido_id=pedido.id,
@@ -437,6 +434,17 @@ class RuleEngine:
                     estado=EstadoAlerta.ABIERTA,
                     fecha_deteccion=self.now,
                 )
+            )
+            if not alerta_creada:
+                continue
+            self.notifier.send_from_template(
+                codigo_plantilla="IMPREVISTO",
+                pedido=pedido,
+                dedupe_key=f"rule:IMPREVISTO:{imp.id}",
+                variables={
+                    "cliente_nombre": pedido.cliente.nombre,
+                    "pedido_codigo": pedido.codigo,
+                },
             )
             caso = CasoEscalamiento(
                 pedido_id=pedido.id,
@@ -613,6 +621,26 @@ class RuleEngine:
                 self._inc("entrega_lista")
 
     # --------- helpers de idempotencia ---------
+    def _insert_alert(self, alerta: Alerta) -> bool:
+        """Inserta una alerta; una carrera que ya la insertó es un no-op."""
+        try:
+            with self.db.begin_nested():
+                self.db.add(alerta)
+                self.db.flush()
+            return True
+        except IntegrityError:
+            existente = self.db.scalar(
+                select(Alerta.id).where(
+                    Alerta.pedido_id == alerta.pedido_id,
+                    Alerta.tipo == alerta.tipo,
+                    Alerta.estado == EstadoAlerta.ABIERTA,
+                    Alerta.item_hito_id == alerta.item_hito_id,
+                )
+            )
+            if existente is not None:
+                return False
+            raise
+
     def _alerta_abierta_para_hito(
         self, item_hito_id: int, tipo: TipoAlerta
     ) -> bool:

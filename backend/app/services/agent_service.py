@@ -46,6 +46,7 @@ from app.services.llm_provider import (
     get_llm_provider,
 )
 from app.services.notification_service import NotificationService
+from app.services.knowledge_base import contexto, respuesta
 from app.services.rule_engine import RuleEngine
 
 logger = get_logger("agent_service")
@@ -455,6 +456,9 @@ class AgentService:
                 pedido.cliente.nombre if pedido else (cliente.nombre if cliente else "")
             ),
             "valid_dates": [],
+            "knowledge_context": contexto(),
+            "knowledge_answer": respuesta(incoming.contenido),
+            "user_question": incoming.contenido,
         }
         response_text, used_fallback = self._compose_with_guardrails(
             classification.intent, facts, pedido,
@@ -687,4 +691,5 @@ class AgentService:
             sentiment=c.sentiment.value,
             confidence=c.confidence,
             provider_used=c.provider_used,
+            model_used=c.model_used or None,
         )

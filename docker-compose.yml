@@ -36,6 +36,23 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     networks: [polux_net]
 
+  telegram_poll:
+    build: ./backend
+    container_name: polux_telegram_poll
+    env_file: .env
+    environment:
+      DB_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: ["python", "-m", "scripts.telegram_poll"]
+    restart: unless-stopped
+    networks: [polux_net]
+
   frontend:
     build: ./frontend
     container_name: polux_frontend
