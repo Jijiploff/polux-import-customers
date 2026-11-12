@@ -292,7 +292,7 @@ def test_chat_no_vinculado_pasa_al_agente_sin_error(escenario):
     result = handle_telegram_update(db, _update(1099, "Hola"), telegram=tg)
 
     assert result["handled"] == "message"
-    assert tg.sent
+    assert len(tg.sent) == 1
 
 
 # ---------- Flujo de vinculación ----------
@@ -562,6 +562,31 @@ def test_notificacion_fallida_queda_auditada_como_operativo(operadores, escenari
     assert all(o.error_envio == "telegram caído" for o in operativos)
 
 
+def test_chat_invalido_se_desvincula_automaticamente(operador, escenario):
+    db_ops, usuario = operador
+    _db, pedido, _cliente = escenario
+    usuario.telegram_chat_id = "2008"
+    db_ops.commit()
+    pedido = db_ops.get(Pedido, pedido.id)
+    caso = _crear_caso(db_ops, pedido)
+
+    class InvalidChatTelegram(FakeTelegram):
+        def send_message(self, chat_id, text, **kwargs):
+            return SimpleNamespace(
+                ok=False,
+                message_id=None,
+                error="Bad Request: chat not found",
+                retriable=False,
+            )
+
+    notify_operator_new_caso(
+        caso, pedido, telegram=InvalidChatTelegram(), db=db_ops
+    )
+
+    db_ops.refresh(usuario)
+    assert usuario.telegram_chat_id is None
+
+
 def test_notificacion_incluye_fallback_de_env(operadores):
     db, _usuarios = operadores
     caso = SimpleNamespace(
@@ -689,18 +714,19 @@ def test_respuesta_citando_el_aviso_del_caso(operador, escenario):
     db.commit()
     db2.commit()
     caso = _crear_caso(db2, pedido)
+    aviso_message_id = uuid.uuid4().int % 2_000_000_000
     db2.add(CasoTelegramNotificacion(
         caso_id=caso.id,
         usuario_id=usuario.id,
         chat_id="4003",
-        message_id=77,
+        message_id=aviso_message_id,
     ))
     db2.commit()
     tg = FakeTelegram()
 
     result = handle_telegram_update(
         db2,
-        _update(4003, "Respuesta citando el aviso", reply_to=77),
+        _update(4003, "Respuesta citando el aviso", reply_to=aviso_message_id),
         telegram=tg,
     )
 

@@ -55,6 +55,7 @@ from app.services.caso_service import (
     responder_caso,
 )
 from app.services.telegram_service import TelegramService
+from app.services.outbox_worker import OutboxWorker
 from app.services.timeline_service import build_timeline
 from app.services.delivery_conversation import (
     cancelar as cancelar_coordinacion,
@@ -955,6 +956,33 @@ def _resolve_caso_abierto(db: Session, pedido: Pedido) -> CasoEscalamiento | Non
     )
 
 
+def _clear_invalid_operator_chat(
+    db: Session | None, chat_id: str | int, error: str | None
+) -> None:
+    """Retira una vinculación que Telegram ya no acepta."""
+    if db is None or not error:
+        return
+    normalized_error = error.lower()
+    if not any(
+        marker in normalized_error
+        for marker in ("chat not found", "bot was blocked", "user is deactivated")
+    ):
+        return
+
+    usuario = db.scalar(
+        select(Usuario).where(Usuario.telegram_chat_id == str(chat_id))
+    )
+    if usuario is None:
+        return
+    _clear_active_case(db, usuario)
+    usuario.telegram_chat_id = None
+    logger.warning(
+        "operator_chat_unlinked_after_telegram_error usuario_id=%s chat_id=%s",
+        usuario.id,
+        chat_id,
+    )
+
+
 def _case_recipients(
     db: Session, caso: CasoEscalamiento, tg: TelegramService
 ) -> list[tuple[str, int | None]]:
@@ -1041,6 +1069,7 @@ def _forward_client_message_to_case(
             fecha=datetime.utcnow(),
         ))
         if not envio.ok:
+            _clear_invalid_operator_chat(db, chat_id, envio.error)
             logger.warning(
                 "client_message_forward_failed caso_id=%s chat_id=%s err=%s",
                 caso.id, chat_id, tg.redact(envio.error or "unknown"),
@@ -1137,6 +1166,7 @@ def notify_operator_new_caso(
                 fecha=datetime.utcnow(),
             ))
         if not envio.ok:
+            _clear_invalid_operator_chat(db, chat_id, envio.error)
             logger.warning(
                 "operator_notification_failed caso_id=%s chat_id=%s err=%s",
                 caso.id, chat_id, tg.redact(envio.error or "unknown"),
@@ -1593,22 +1623,25 @@ def handle_telegram_update(
     )
 
     # ---------- Enviar respuesta por Telegram ----------
-    if result.response_text:
-        envio = tg.send_message(chat_id, result.response_text)
-        if result.outgoing_comunicacion_id:
-            com_out = db.get(Comunicacion, result.outgoing_comunicacion_id)
-            if com_out:
-                com_out.canal = Canal.TELEGRAM
-                if envio.ok:
-                    com_out.estado_entrega = "SENT"
-                    com_out.enviado_en = datetime.utcnow()
-                    com_out.error_envio = None
-                else:
-                    com_out.estado_entrega = (
-                        "FAILED_RETRY" if envio.retriable else "FAILED"
-                    )
-                    com_out.error_envio = (envio.error or "unknown")[:500]
-                db.commit()
+    if result.outgoing_comunicacion_id:
+        com_out = db.get(Comunicacion, result.outgoing_comunicacion_id)
+        if com_out and com_out.pedido_id is None:
+            # Las respuestas generales no tienen pedido para que el outbox
+            # resuelva el cliente; se entregan aquí y quedan confirmadas.
+            envio = tg.send_message(chat_id, result.response_text or "")
+            com_out.estado_entrega = (
+                "SENT" if envio.ok else ("FAILED_RETRY" if envio.retriable else "FAILED")
+            )
+            com_out.enviado_en = datetime.utcnow() if envio.ok else None
+            com_out.error_envio = (envio.error or None) and envio.error[:500]
+            db.commit()
+        else:
+            OutboxWorker(db, telegram=tg).process_communication(
+                result.outgoing_comunicacion_id
+            )
+    elif result.response_text:
+        # Sólo aplica a resultados sin comunicación persistida.
+        _reply(db, tg, chat_id, result.response_text, cliente, pedido)
 
     # ---------- Notificar al operador si se escaló ----------
     if result.escalated and result.caso_id and pedido:

@@ -114,6 +114,10 @@ SCHEDULER_ENABLED=true
 WHATSAPP_DRY_RUN=true
 LLM_PROVIDER=mock
 EMAIL_PROVIDER=mock
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=<token-de-BotFather>
+TELEGRAM_WEBHOOK_SECRET=<secreto-aleatorio>
+TELEGRAM_OPERATOR_CHAT_ID=
 ```
 
 > ⚠️ **Importante**: `MSSQL_SA_PASSWORD` debe cumplir la política de SQL Server
@@ -129,7 +133,7 @@ docker compose up -d --build
 Esto puede tardar **5–10 minutos la primera vez** (descarga SQL Server 2022,
 compila backend y frontend).
 
-Verifica que los 3 contenedores estén corriendo:
+Verifica que los 4 contenedores estén corriendo:
 
 ```cmd
 docker compose ps
@@ -139,6 +143,7 @@ Esperado:
 ```
 polux_db          Up (healthy)
 polux_backend     Up
+polux_telegram_poll Up
 polux_frontend    Up
 ```
 
@@ -151,7 +156,7 @@ polux_frontend    Up
 :: Crear la BD
 docker compose exec -T db /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "Polux#Strong!Pwd2025" -Q "IF DB_ID('PoluxImportDB') IS NULL CREATE DATABASE PoluxImportDB"
 
-:: Aplicar migraciones (crea ~31 tablas + 7 vistas KPI)
+:: Aplicar todas las migraciones (incluye la tabla coordinacion_entrega)
 docker compose exec -T backend alembic upgrade head
 
 :: Cargar seeds (roles, usuarios demo, hitos, SLA, plantillas, reglas, KPIs)
@@ -167,6 +172,7 @@ INFO  [alembic.runtime.migration] Running upgrade  -> 0001_initial_schema
 INFO  [alembic.runtime.migration] Running upgrade 0001_initial_schema -> 0002_kpi_views
 INFO  [alembic.runtime.migration] Running upgrade 0002_kpi_views -> 0003_outbox_columns
 INFO  [alembic.runtime.migration] Running upgrade 0003_outbox_columns -> 0004_fact_columns
+INFO  [alembic.runtime.migration] Running upgrade 0011_idempotency_keys -> 0012_delivery_workflow
 
 [seed] OK
 [seed] fact_sync: {...}
@@ -187,6 +193,36 @@ curl http://localhost:8000/api/v1/health/db
 → `{"status":"ok","database":"PoluxImportDB","host":"db"}`
 
 Abre en el navegador: **http://localhost:5173**
+
+### 4.6 Verificar Telegram
+
+El servicio `telegram_poll` usa `getUpdates` en desarrollo local. Al iniciar,
+elimina cualquier webhook anterior para evitar que webhook y polling compitan.
+
+```cmd
+:: Debe mostrar TELEGRAM_ENABLED=true y token_configured=True
+docker compose exec -T telegram_poll python -c "from app.core.config import get_settings; s=get_settings(); print(s.TELEGRAM_ENABLED, bool(s.TELEGRAM_BOT_TOKEN))"
+
+:: Debe devolver ok=true, url vacía y pending_update_count
+docker compose exec -T telegram_poll python -c "from app.services.telegram_service import TelegramService; print(TelegramService().get_webhook_info())"
+
+:: Debe mostrar webhook_removed_for_polling y telegram_polling_started
+docker compose logs --tail=50 telegram_poll
+```
+
+Si la API está activa pero el bot no responde, revisa primero:
+
+```cmd
+docker compose logs --tail=100 telegram_poll
+docker compose exec -T backend alembic current
+```
+
+La revisión debe ser `0012_delivery_workflow (head)`. Si no lo es, ejecuta:
+
+```cmd
+docker compose exec -T backend alembic upgrade head
+docker compose restart telegram_poll
+```
 
 ---
 
@@ -380,7 +416,7 @@ backend/
 │   │   ├── fact_sync_service.py    # ETL a modelo dimensional
 │   │   └── kpi_service.py          # Series temporales + validación SQL
 │   └── api/v1/         # 19 routers REST
-├── alembic/            # 4 migraciones (0001-0004)
+├── alembic/            # 12 migraciones (0001-0012)
 ├── scripts/            # seed_data, test_data, verify_modules, run_worker
 └── tests/              # ~20 archivos de pruebas Pytest
 ```
@@ -562,6 +598,24 @@ Busca `ModuleNotFoundError` o `ImportError` → falta un archivo del repo.
 Ejecuta la auditoría:
 ```cmd
 docker compose run --rm --no-deps backend python -m scripts.verify_modules
+```
+
+### Telegram no responde
+
+Confirma que el polling esté activo y que no exista un webhook configurado:
+
+```cmd
+docker compose ps telegram_poll
+docker compose logs --tail=100 telegram_poll
+docker compose exec -T telegram_poll python -c "from app.services.telegram_service import TelegramService; print(TelegramService().get_webhook_info())"
+```
+
+El resultado esperado del webhook contiene `url: ''`. Si los logs muestran
+`Invalid object name 'coordinacion_entrega'`, faltan migraciones:
+
+```cmd
+docker compose exec -T backend alembic upgrade head
+docker compose restart telegram_poll
 ```
 
 ### Login falla con "Credenciales inválidas"

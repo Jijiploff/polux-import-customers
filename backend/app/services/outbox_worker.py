@@ -41,12 +41,34 @@ _WHATSAPP_OK_STATES = {"PENDING", "FAILED_RETRY"}
 
 
 class OutboxWorker:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, *, telegram: TelegramService | None = None):
         self.db = db
         self.settings = get_settings()
         self.wa = WhatsAppService()
         self.email = EmailService()
-        self.telegram = TelegramService()
+        self.telegram = telegram or TelegramService()
+
+    def process_communication(self, communication_id: int) -> str:
+        """Despacha una comunicación concreta y confirma su estado.
+
+        Se usa cuando el canal necesita una respuesta inmediata, evitando que
+        otro scheduler tome la misma fila PENDING y la envíe dos veces.
+        """
+        com = self.db.get(Comunicacion, communication_id)
+        if com is None:
+            raise ValueError(f"Comunicación {communication_id} no existe")
+        if (
+            com.direccion != DireccionComunicacion.SALIENTE
+            or com.estado_entrega not in _WHATSAPP_OK_STATES
+        ):
+            return "skipped"
+        try:
+            outcome = self._process_one(com)
+            self.db.commit()
+            return outcome
+        except Exception:
+            self.db.rollback()
+            raise
 
     def process_batch(self, batch_size: int | None = None) -> dict[str, int]:
         size = batch_size or self.settings.OUTBOX_BATCH_SIZE
