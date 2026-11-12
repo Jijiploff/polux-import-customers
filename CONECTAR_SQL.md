@@ -34,3 +34,27 @@ Es la herramienta nativa de Microsoft para administrar SQL Server. Es la más co
     3.  Ingresa el usuario `sa` y la contraseña de tu `.env`.
     4.  (Opcional) Haz clic en "Opciones" > "Propiedades de conexión" y escribe `PoluxImportDB` como base de datos.
     5.  Haz clic en **"Conectar"**.
+
+    El Flujo Ideal (Cómo DEBE interactuar el bot)
+Cliente: Hola, quiero saber el estado de mis pedidos.
+
+Bot: ¡Hola María! Veo que tienes 2 pedidos activos en este momento: 1️⃣ **PD-2025-0001** (AirPods Pro 2) 2️⃣ **PD-2025-0002** (iPhone 15 Pro Max + AirPods Pro 2) ¿De cuál de ellos te gustaría saber el estado? (Puedes escribir el número o el código) (NOTA: debe listar cuando se mencione ver estado, confirmar la entre de un pedido, etc)
+
+Cliente: 2 (o 2️⃣ o PD-2025-0002)(NOTA: debe entender y consultar al pedido indicado)
+
+Bot: Perfecto, ahora estamos consultando el pedido **PD-2025-0002**. ¿Qué deseas saber sobre él?
+
+Cliente: ¿A qué hora llega mi iPhone?
+
+Bot: El iPhone 15 Pro Max de tu pedido **PD-2025-0002** llegará a aduana el 23/11/2026, con entrega estimada para el 07/12/2026. ¿Te gustaría coordinar la entrega?
+
+Cliente: Mejor dime del otro pedido/PD-2025-0001/1 etc (NOTA: debe cambiar a otro pedido cuando se solicite o indicar q no hay otro pedido a nombre del usuario si no hay mas de 1)
+
+Bot: ✅ Cambiando al pedido **PD-2025-0001**. Tus AirPods Pro 2 están listos. La entrega está programada para el 16/11/2026, entre 13:00 y 15:00 hrs en Calle San Carlos 501. ¿Todo correcto?
+
+2. Diagnóstico Técnico (Por qué fallaba)
+No hay memoria de contexto: Siempre se busca el pedido más reciente en la base de datos (el 0001). Si en el mensaje 3 el cliente pregunta algo, el bot vuelve a leer los datos del 0001, ignorando que ya se había cambiado al 0002.
+
+No intercepta los códigos cortos: El bot solo detecta cambios de pedido si el cliente envía el código completo y el DNI juntos. Si escribes solo "2" o "0002", pasa hacia la IA. La IA ve un número suelto y se confunde, o responde con los datos del pedido por defecto.
+
+Falta de reglas en el Prompt: La IA no listar oportunamente los pedidos en formato numerado (1️⃣, 2️⃣) cuando hay más de uno, ni de pedirle al cliente que elija.

@@ -70,6 +70,22 @@ def test_outbox_envia_pendiente():
         _cleanup(db, ped.id); db.close()
 
 
+def test_outbox_claim_is_single_use():
+    db = SessionLocal()
+    try:
+        ped = _mk(db)
+        com = _mk_com(db, ped.id)
+        worker = OutboxWorker(db)
+
+        assert worker._claim_communication(com.id) is True
+        assert worker._claim_communication(com.id) is False
+
+        db.refresh(com)
+        assert com.estado_entrega == "SENDING"
+    finally:
+        _cleanup(db, ped.id); db.close()
+
+
 def test_outbox_respeta_proximo_intento_futuro():
     db = SessionLocal()
     try:

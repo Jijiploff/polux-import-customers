@@ -209,16 +209,103 @@ def _resolve_cliente(db: Session, chat_id: int) -> Cliente | None:
 
 
 def _resolve_pedido_activo(db: Session, cliente: Cliente) -> Pedido | None:
-    return db.scalar(
-        select(Pedido)
+    pedido_id = db.scalar(
+        select(Comunicacion.pedido_id)
+        .join(Pedido, Pedido.id == Comunicacion.pedido_id)
         .where(
+            Comunicacion.canal == Canal.TELEGRAM,
+            Comunicacion.pedido_id.is_not(None),
+            Comunicacion.direccion == DireccionComunicacion.ENTRANTE,
             Pedido.cliente_id == cliente.id,
             Pedido.estado_actual.not_in(
                 ["CERRADO", "CERRADO_CON_OBSERVACIONES", "CANCELADO"]
             ),
         )
-        .order_by(Pedido.fecha_ingreso.desc())
+        .order_by(Comunicacion.fecha.desc(), Comunicacion.id.desc())
         .limit(1)
+    )
+    if pedido_id is not None:
+        return db.get(Pedido, pedido_id)
+    pedidos = _pedidos_activos(db, cliente)
+    return pedidos[0] if len(pedidos) == 1 else None
+
+
+def _pedidos_activos(db: Session, cliente: Cliente) -> list[Pedido]:
+    return list(
+        db.scalars(
+            select(Pedido)
+            .where(
+                Pedido.cliente_id == cliente.id,
+                Pedido.estado_actual.not_in(
+                    ["CERRADO", "CERRADO_CON_OBSERVACIONES", "CANCELADO"]
+                ),
+            )
+            .order_by(Pedido.fecha_ingreso.desc(), Pedido.id.desc())
+        ).all()
+    )
+
+
+def _es_consulta_multiple(text: str) -> bool:
+    normalized = text.lower()
+    return (
+        "mis pedidos" in normalized
+        or "mis compras" in normalized
+        or "todos mis" in normalized
+        or "ver el otro pedido" in normalized
+        or "otro pedido" in normalized
+        or "el que es de" in normalized
+        or "estado" in normalized
+        or "ver mi pedido" in normalized
+        or "ver pedido" in normalized
+        or "coordinar entrega" in normalized
+        or "confirmar la entrega" in normalized
+        or "confirmar entrega" in normalized
+    )
+
+
+def _referencia_numerica(text: str) -> str | None:
+    """Extrae una selección corta: ``2``, ``2️⃣`` o ``0002``."""
+    limpio = re.sub(r"[^\d]", "", text)
+    return limpio or None
+
+
+def _es_consulta_con_codigo(text: str) -> bool:
+    normalized = text.lower()
+    return any(
+        term in normalized
+        for term in (
+            "estado", "hora", "entrega", "dirección", "direccion",
+            "detalles", "llega", "dime", "cuéntame", "cuentame",
+        )
+    )
+
+
+def _resumen_pedido(pedido: Pedido) -> str:
+    productos = [
+        item.descripcion_producto
+        for item in pedido.items
+        if item.descripcion_producto
+    ]
+    productos_texto = " + ".join(productos) or "sin productos registrados"
+    return f"{pedido.codigo} ({productos_texto})"
+
+
+def _respuesta_lista_pedidos(pedidos: list[Pedido], nombre: str) -> str:
+    encabezado = (
+        f"¡Hola, {nombre}! Veo que tienes {len(pedidos)} pedidos activos "
+        "en este momento:"
+    )
+    opciones = "\n".join(
+        f"{indice}️⃣ **{pedido.codigo}** ({_resumen_pedido(pedido).split(' ', 1)[1]})"
+        for indice, pedido in enumerate(pedidos, start=1)
+    )
+    return f"{encabezado}\n{opciones}\n¿De cuál de ellos te gustaría saber el estado?"
+
+
+def _respuesta_cambio_pedido(pedido: Pedido) -> str:
+    return (
+        f"Perfecto, ahora estamos consultando el pedido **{pedido.codigo}**. "
+        "¿En qué te puedo ayudar?"
     )
 
 
@@ -259,16 +346,25 @@ def _parse_pedido_link(text: str) -> tuple[str | None, str | None]:
     - ``PD-2025-0001 70000001``
     - ``PD-2025-0001 DNI 70000001``
     """
-    parts = [p for p in re.split(r"[\s,;]+", text.strip()) if p]
-    if not parts or not parts[0].upper().startswith("PD-"):
+    match = re.search(r"\b(PD-[A-Za-z0-9-]+)\b", text, flags=re.IGNORECASE)
+    if match is None:
         return None, None
 
-    codigo = parts[0].upper()
-    resto = parts[1:]
-    if resto and resto[0].upper() in {"DNI", "DOC", "DOCUMENTO", "CEDULA", "CÉDULA"}:
+    codigo = match.group(1).upper()
+    resto = [
+        p for p in re.split(r"[\s,;]+", text[match.end():].strip())
+        if p
+    ]
+    etiquetas = {"DNI", "DOC", "DOCUMENTO", "CEDULA", "CÉDULA"}
+    tiene_etiqueta = bool(resto and resto[0].upper() in etiquetas)
+    if tiene_etiqueta:
         resto = resto[1:]
 
-    documento = "".join(resto) if resto else None
+    documento = (
+        "".join(resto)
+        if resto and (tiene_etiqueta or len(resto) == 1 and resto[0].isdigit())
+        else None
+    )
     if documento and not re.fullmatch(r"[A-Za-z0-9]{4,20}", documento):
         documento = None
     return codigo, documento
@@ -1504,7 +1600,30 @@ def handle_telegram_update(
 
     # ---------- Vinculación por código de pedido + DNI ----------
     if cliente:
-        pedido = _resolve_pedido_activo(db, cliente)
+        codigo, documento = _parse_pedido_link(text)
+        if codigo:
+            p = _find_pedido_by_codigo(db, codigo)
+            if (
+                p is None
+                or p.cliente_id != cliente.id
+                or (documento is not None and not _documento_matches(cliente, documento))
+                or p.estado_actual.value in {"CERRADO", "CERRADO_CON_OBSERVACIONES", "CANCELADO"}
+            ):
+                _log_comando(db, chat_id, f"{codigo} [DNI]" if documento else codigo,
+                             cliente, None, external_id)
+                _reply(db, tg, chat_id, _LINK_INVALID, cliente)
+                return {"handled": "order_switch_rejected", "chat_id": chat_id}
+            if _es_consulta_con_codigo(text):
+                pedido = p
+            else:
+                _log_comando(
+                    db, chat_id, f"{codigo} [DNI]" if documento else codigo,
+                    cliente, p, external_id,
+                )
+                _reply(db, tg, chat_id, _respuesta_cambio_pedido(p), cliente, p)
+                return {"handled": "order_switched", "chat_id": chat_id, "pedido_id": p.id}
+        if pedido is None:
+            pedido = _resolve_pedido_activo(db, cliente)
     else:
         codigo, documento = _parse_pedido_link(text)
         if codigo:
@@ -1527,14 +1646,79 @@ def handle_telegram_update(
                 _reply(db, tg, chat_id, _LINK_ALREADY_LINKED)
                 return {"handled": "already_linked", "chat_id": chat_id}
 
+            if external_id is not None:
+                link_log = db.scalar(
+                    select(Comunicacion).where(
+                        Comunicacion.whatsapp_message_id == external_id,
+                        Comunicacion.direccion == DireccionComunicacion.ENTRANTE,
+                    )
+                )
+                if link_log is not None:
+                    link_log.pedido_id = p.id
             p.cliente.telegram_chat_id = str(chat_id)
             db.commit()
             cliente = p.cliente
             pedido = p
 
-            msg = f"✅ Vinculado al pedido {p.codigo}. Ya puedes consultar su estado."
+            nombre = (p.cliente.nombre or "").strip().split(" ", 1)[0]
+            saludo = f", ¿en qué te puedo ayudar, {nombre}?" if nombre else "."
+            msg = f"✅ Vinculado al pedido {p.codigo}{saludo}"
             _reply(db, tg, chat_id, msg, cliente, pedido)
             return {"handled": "vinculado", "chat_id": chat_id, "pedido_id": p.id}
+
+    # ---------- Selección explícita entre varios pedidos ----------
+    if cliente:
+        pedidos_activos = _pedidos_activos(db, cliente)
+        seleccion = text.strip()
+        referencia = _referencia_numerica(seleccion)
+        pedido_seleccionado = None
+        if referencia and len(referencia) >= 3:
+            coincidencias = [
+                candidato for candidato in pedidos_activos
+                if candidato.codigo.split("-")[-1] == referencia
+            ]
+            if len(coincidencias) == 1:
+                pedido_seleccionado = coincidencias[0]
+        elif referencia and 1 <= int(referencia) <= len(pedidos_activos):
+            pedido_seleccionado = pedidos_activos[int(referencia) - 1]
+        if pedido_seleccionado is not None:
+            _log_comando(db, chat_id, seleccion, cliente, pedido_seleccionado, external_id)
+            _reply(
+                db, tg, chat_id, _respuesta_cambio_pedido(pedido_seleccionado),
+                cliente, pedido_seleccionado,
+            )
+            return {
+                "handled": "order_selected",
+                "chat_id": chat_id,
+                "pedido_id": pedido_seleccionado.id,
+            }
+        if len(pedidos_activos) > 1 and (
+            _es_consulta_multiple(text) and (
+                pedido is None
+                or "mis pedidos" in text.lower()
+                or "mis compras" in text.lower()
+                or "otro pedido" in text.lower()
+                or "el que es de" in text.lower()
+            )
+        ):
+            _log_comando(db, chat_id, text, cliente, None, external_id)
+            _reply(
+                db, tg, chat_id,
+                _respuesta_lista_pedidos(
+                    pedidos_activos,
+                    (cliente.nombre or "").strip().split(" ", 1)[0] or "cliente",
+                ),
+                cliente,
+            )
+            return {"handled": "order_selection_required", "chat_id": chat_id}
+        if len(pedidos_activos) == 1 and _es_consulta_multiple(text):
+            _log_comando(db, chat_id, text, cliente, pedidos_activos[0], external_id)
+            _reply(
+                db, tg, chat_id,
+                f"Solo tienes un pedido activo: **{pedidos_activos[0].codigo}**.",
+                cliente, pedidos_activos[0],
+            )
+            pedido = pedidos_activos[0]
 
     # ---------- Caso abierto: el mensaje va al operador (chat humano) ----------
     if cliente and pedido:

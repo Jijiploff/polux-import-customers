@@ -32,6 +32,7 @@ from app.models import (
     PedidoItem,
     PrioridadCaso,
     Sentimiento,
+    Entrega,
 )
 from app.schemas.agent import AgentResult, ClassificationRead, IncomingMessage
 from app.services.llm_provider import (
@@ -111,6 +112,11 @@ class AgentService:
         incoming.intencion_detectada = classification.intent.value
         incoming.sentimiento = self._map_sentiment(classification.sentiment)
         self.db.flush()
+
+        if pedido is not None and self._is_delivery_query(payload.contenido):
+            return self._handle_delivery_query(
+                pedido, incoming, classification, fallback,
+            )
 
         result = self._route(
             payload=payload, pedido=pedido, cliente=cliente, incoming=incoming,
@@ -321,6 +327,85 @@ class AgentService:
     # =================================================================
     # Handlers
     # =================================================================
+    @staticmethod
+    def _is_delivery_query(text: str) -> bool:
+        normalized = text.lower()
+        return any(
+            term in normalized
+            for term in (
+                "entrega", "entregar", "llegar", "llegará", "hora",
+                "horario", "franja", "dirección", "direccion", "domicilio",
+                "receptor", "por la tarde", "por la mañana",
+            )
+        )
+
+    def _handle_delivery_query(
+        self,
+        pedido: Pedido,
+        incoming: Comunicacion,
+        classification: ClassificationResult,
+        fallback: bool,
+    ) -> AgentResult:
+        facts = self._build_facts(pedido)
+        delivery = facts.get("entrega")
+        text = incoming.contenido.lower()
+        if delivery is None:
+            pendientes = [
+                item for item in facts["items"]
+                if item["estado"] != "LISTO_PARA_ENTREGA"
+            ]
+            if pendientes:
+                esperando = ", ".join(item["descripcion"] for item in pendientes)
+                response_text = (
+                    f"Para el pedido **{pedido.codigo}**, aún no tenemos una entrega "
+                    f"programada porque estamos esperando que llegue: {esperando}. "
+                    f"La fecha prometida es el {facts['fecha_prometida']}. "
+                    "¿Prefieres que coordinemos el envío cuando llegue todo?"
+                )
+            else:
+                response_text = (
+                    f"Tu pedido **{pedido.codigo}** aún no tiene una entrega programada. "
+                    "Cuando esté lista podremos coordinar la fecha y el horario."
+                )
+        elif any(term in text for term in ("por la tarde", "por la mañana", "prefiero")):
+            response_text = (
+                f"Perfecto, mantendremos tu horario de {delivery['franja_horaria']}. "
+                "Si deseas cambiar la dirección o la hora, dímelo y escalaré tu caso "
+                "con un asesor para que lo modifique en el sistema."
+            )
+        else:
+            address = delivery["direccion"] or "la dirección registrada"
+            recipient = delivery["receptor_nombre"] or pedido.cliente.nombre
+            dni = delivery["receptor_dni"] or pedido.cliente.documento
+            recipient_data = f"{recipient}"
+            if dni:
+                recipient_data += f" (DNI {dni})"
+            schedule = delivery["fecha_programada"]
+            if delivery["franja_horaria"]:
+                schedule += f", entre las {delivery['franja_horaria']} hrs"
+            response_text = (
+                f"Tu entrega está programada para el **{schedule}**. "
+                f"Se enviará a: **{address}**. "
+                f"El receptor es **{recipient_data}**. "
+                "¿Necesitas cambiar algún detalle?"
+            )
+        outgoing = self.notifier.send_raw_from_agent(
+            pedido=pedido,
+            contenido=response_text,
+            intencion=classification.intent.value,
+            sentimiento=classification.sentiment.value,
+            require_consent=False,
+        )
+        return AgentResult(
+            incoming_comunicacion_id=incoming.id,
+            outgoing_comunicacion_id=outgoing.id if outgoing else None,
+            classification=self._serialize_classification(classification),
+            escalated=False,
+            response_text=response_text,
+            fallback_used=fallback,
+            fecha_procesamiento=datetime.utcnow(),
+        )
+
     def _escalate(
         self,
         *,
@@ -651,6 +736,23 @@ class AgentService:
                 ),
             )
         ) is not None
+        entrega = self.db.scalar(
+            select(Entrega)
+            .where(Entrega.pedido_id == pedido.id)
+            .order_by(Entrega.id.desc())
+        )
+        entrega_facts = None
+        if entrega is not None:
+            entrega_facts = {
+                "estado": entrega.estado.value,
+                "fecha_programada": entrega.fecha_programada.strftime("%d/%m/%Y"),
+                "direccion": entrega.direccion or pedido.direccion_entrega,
+                "distrito": entrega.distrito,
+                "franja_horaria": entrega.franja_horaria,
+                "receptor_nombre": entrega.receptor_nombre,
+                "receptor_dni": entrega.receptor_dni,
+                "receptor_telefono": entrega.receptor_telefono,
+            }
 
         return {
             "cliente_nombre": self._first_name(pedido.cliente.nombre),
@@ -663,6 +765,7 @@ class AgentService:
             "valid_dates": sorted(valid_dates),
             "imprevisto_activo": imprevisto_activo,
             "retraso_critico": retraso_critico,
+            "entrega": entrega_facts,
         }
 
     # =================================================================

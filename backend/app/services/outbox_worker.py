@@ -15,7 +15,7 @@ from __future__ import annotations
 import random
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -63,11 +63,17 @@ class OutboxWorker:
         ):
             return "skipped"
         try:
+            if not self._claim_communication(communication_id):
+                return "skipped"
+            com = self.db.get(Comunicacion, communication_id)
+            if com is None:
+                return "skipped"
             outcome = self._process_one(com)
             self.db.commit()
             return outcome
         except Exception:
             self.db.rollback()
+            self._release_claim(communication_id)
             raise
 
     def process_batch(self, batch_size: int | None = None) -> dict[str, int]:
@@ -89,14 +95,57 @@ class OutboxWorker:
         counts = {"sent": 0, "retried": 0, "failed_terminal": 0, "skipped": 0, "email_fallback": 0}
         for com in rows:
             try:
+                if not self._claim_communication(com.id):
+                    counts["skipped"] += 1
+                    continue
+                com = self.db.get(Comunicacion, com.id)
+                if com is None:
+                    counts["skipped"] += 1
+                    continue
                 outcome = self._process_one(com)
+                self.db.commit()
                 counts[outcome] += 1
             except Exception:
                 logger.exception("outbox_process_failed com_id=%s", com.id)
+                self.db.rollback()
+                self._release_claim(com.id)
                 counts["skipped"] += 1
         self.db.commit()
         logger.info("outbox_batch_done counts=%s", counts)
         return counts
+
+    def _claim_communication(self, communication_id: int) -> bool:
+        """Reserva una comunicación para impedir despachos concurrentes."""
+        result = self.db.execute(
+            update(Comunicacion)
+            .where(
+                Comunicacion.id == communication_id,
+                Comunicacion.estado_entrega.in_(tuple(_WHATSAPP_OK_STATES)),
+            )
+            .values(estado_entrega="SENDING")
+        )
+        if result.rowcount != 1:
+            self.db.rollback()
+            return False
+        self.db.commit()
+        return True
+
+    def _release_claim(self, communication_id: int) -> None:
+        self.db.execute(
+            update(Comunicacion)
+            .where(
+                Comunicacion.id == communication_id,
+                Comunicacion.estado_entrega == "SENDING",
+            )
+            .values(
+                estado_entrega="FAILED_RETRY",
+                proximo_intento=datetime.utcnow() + timedelta(
+                    seconds=self.settings.WHATSAPP_BACKOFF_BASE_SECONDS
+                ),
+                error_envio="Error inesperado durante el despacho",
+            )
+        )
+        self.db.commit()
 
     # ---------- Lógica por comunicación ----------
     def _process_one(self, com: Comunicacion) -> str:

@@ -18,9 +18,11 @@ from app.models import (
     Comunicacion,
     DireccionComunicacion,
     EstadoCaso,
+    EstadoEntrega,
     EstadoIngreso,
     EstadoItem,
     EstadoPedido,
+    Entrega,
     ModalidadEntrega,
     MotivoEscalamiento,
     OrigenItem,
@@ -29,6 +31,7 @@ from app.models import (
     PrioridadCaso,
     Rol,
     RolCodigo,
+    TipoEntrega,
     Usuario,
     UsuarioCasoActivo,
     UsuarioRol,
@@ -354,6 +357,56 @@ def test_dni_correcto_vincula(escenario):
     assert "70000001" not in contenido
 
 
+def test_vinculacion_no_invoca_al_agente(escenario, monkeypatch):
+    db, pedido, cliente = escenario
+    tg = FakeTelegram()
+
+    def proveedor_no_deberia_usarse():
+        raise AssertionError("La vinculación no debe pasar por el agente IA")
+
+    monkeypatch.setattr(
+        telegram_handler, "get_telegram_llm_provider", proveedor_no_deberia_usarse,
+    )
+    result = handle_telegram_update(
+        db, _update(1007, f"{pedido.codigo} 70000001"), telegram=tg,
+    )
+
+    assert result["handled"] == "vinculado"
+    assert "¿en qué te puedo ayudar" in tg.sent[-1][1]
+
+
+def test_consulta_entrega_responde_datos_registrados(escenario):
+    db, pedido, cliente = escenario
+    cliente.telegram_chat_id = "1008"
+    entrega = Entrega(
+        pedido_id=pedido.id,
+        tipo=TipoEntrega.COMPLETA,
+        modalidad=ModalidadEntrega.DOMICILIO,
+        estado=EstadoEntrega.PROGRAMADA,
+        fecha_programada=datetime(2026, 11, 16, 9, 0),
+        direccion="Calle San Carlos 501",
+        distrito="El Porvenir",
+        receptor_nombre="María Rodríguez",
+        receptor_dni="70000001",
+        franja_horaria="13:00-15:00",
+    )
+    db.add(entrega)
+    db.commit()
+    tg = FakeTelegram()
+
+    result = handle_telegram_update(
+        db, _update(1008, "¿A qué hora va a llegar mi pedido? Dame los detalles de la entrega."),
+        telegram=tg,
+    )
+
+    assert result["handled"] == "message"
+    message = tg.sent[-1][1]
+    assert "16/11/2026" in message
+    assert "13:00-15:00" in message
+    assert "Calle San Carlos 501" in message
+    assert "María Rodríguez" in message
+
+
 def test_acepta_prefijo_dni(escenario):
     db, pedido, cliente = escenario
     tg = FakeTelegram()
@@ -365,6 +418,54 @@ def test_acepta_prefijo_dni(escenario):
     assert result["handled"] == "vinculado"
     db.refresh(cliente)
     assert cliente.telegram_chat_id == "1005"
+
+
+def test_cliente_puede_listar_y_cambiar_entre_pedidos(escenario):
+    db, pedido, cliente = escenario
+    cliente.telegram_chat_id = "1009"
+    segundo = Pedido(
+        codigo=f"PD-TG-2-{uuid.uuid4().hex[:6]}",
+        cliente_id=cliente.id,
+        estado_ingreso=EstadoIngreso.PRIMER_PAGO_VERIFICADO,
+        estado_actual=EstadoPedido.EN_PROCESO,
+        fecha_ingreso=datetime.utcnow(),
+        fecha_prometida=datetime.utcnow(),
+        modalidad_entrega=ModalidadEntrega.DOMICILIO,
+    )
+    db.add(segundo)
+    db.flush()
+    db.add(PedidoItem(
+        pedido_id=segundo.id,
+        descripcion_producto="iPhone 15 Pro Max",
+        cantidad=1,
+        origen=OrigenItem.STOCK_TRUJILLO,
+        estado=EstadoItem.EN_PROCESO,
+    ))
+    db.commit()
+    tg = FakeTelegram()
+    try:
+        result = handle_telegram_update(
+            db, _update(1009, "Hola, quiero ver el estado de mis pedidos."),
+            telegram=tg,
+        )
+        assert result["handled"] == "order_selection_required"
+        assert pedido.codigo in tg.sent[-1][1]
+        assert segundo.codigo in tg.sent[-1][1]
+
+        result = handle_telegram_update(
+            db, _update(1009, "2️⃣"), telegram=tg,
+        )
+        assert result["handled"] == "order_selected"
+        assert segundo.codigo in tg.sent[-1][1]
+
+        result = handle_telegram_update(
+            db, _update(1009, "0001"), telegram=tg,
+        )
+        assert result["handled"] == "order_selected"
+        assert pedido.codigo in tg.sent[-1][1]
+    finally:
+        from tests.db_utils import cleanup_pedido
+        cleanup_pedido(db, segundo.id)
 
 
 def test_no_permite_robar_pedido_ya_vinculado(escenario):
