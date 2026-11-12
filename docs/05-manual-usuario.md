@@ -378,6 +378,7 @@ minutos:
 | Pedidos, hitos, entregas | ✅ | ✅ | ❌ |
 | Alertas, casos, imprevistos, comunicaciones | ✅ | ✅ | ❌ |
 | Agente IA (probar el asistente) | ✅ | ✅ | ❌ |
+| Contestador (chats asignados) | ✅ | ✅ | ❌ |
 | Responder casos desde la plataforma | ✅ | ✅ | ❌ |
 | Usuarios, reglas, catálogos, operaciones | ✅ | ❌ | ❌ |
 
@@ -437,16 +438,28 @@ en el sistema. Sirve para comprobar cómo reaccionaría.
 ## 13. Responder casos desde la plataforma
 
 **¿Qué es?** La forma de atender a un cliente sin usar tu Telegram
-personal: desde **Casos → Responder** ves la conversación, escribes la
-respuesta y el sistema la entrega por el canal configurado (Telegram).
-Es el mismo flujo que responder desde el bot, con la misma asignación y
-auditoría.
+personal: desde **Contestador** o **Casos → Responder** ves la
+conversación, escribes la respuesta y el sistema la entrega por el canal
+configurado (Telegram). Es el mismo flujo que responder desde el bot, con
+la misma asignación y auditoría.
 
 Disponible para **Administradores** y **Operadores**:
 
 ![Casos](capturas/08-casos.png)
 
-### 13.1 Abrir y responder un caso
+### 13.1 Contestador: tus conversaciones asignadas
+
+El menú **Contestador** es la bandeja de trabajo diaria:
+
+- **Operador:** solo ve los chats de casos **asignados a él**. Si no tiene
+  ninguno, entra a **Casos**, abre un caso **sin asignar** y responde:
+  al enviar, el caso queda para él.
+- **Administrador:** ve todas las conversaciones y puede responder incluso
+  las asignadas a un operador; la asignación se mantiene.
+- La lista muestra cliente, código de pedido, último mensaje, caso abierto
+  y responsable. El botón **Historial** abre la línea de tiempo del pedido.
+
+### 13.2 Abrir y responder un caso
 
 1. En el menú, haz clic en **Casos** y localiza el caso **Abierto**.
 2. Pulsa **Responder**. Se abre la ficha con:
@@ -461,7 +474,7 @@ Disponible para **Administradores** y **Operadores**:
 5. Usa **Ver la línea de tiempo del pedido** dentro de la misma ventana
    para revisar hitos, casos, imprevistos, entregas y alertas.
 
-### 13.2 Si el cliente no tiene Telegram
+### 13.3 Si el cliente no tiene Telegram
 
 La ficha mostrará **Telegram del cliente: sin vincular ⚠️** y el botón
 de envío quedará deshabilitado. Para vincularlo, el cliente debe escribir
@@ -470,12 +483,24 @@ al bot con su **código de pedido + DNI** (por ejemplo
 entregar la respuesta; el intento queda registrado como **Operativo**
 para auditoría, pero el caso **no** se asigna.
 
-### 13.3 Cerrar el caso
+### 13.4 Cerrar el caso
 
 Cuando el problema esté resuelto, pulsa **Cerrar** en la fila del caso.
 El caso pasa a **Cerrado** y, si el cliente tiene Telegram, recibe el
 aviso de cierre. Todo queda en la línea de tiempo y en
 **Comunicaciones**.
+
+### 13.5 Liberar o reasignar un caso
+
+- **Operador:** en **Casos**, los casos que tiene asignados muestran el
+  botón **Liberar**. Al pulsarlo, el caso queda **sin asignar** para que
+  otro operador lo tome; se conserva todo el historial.
+- **Administrador:** en la ficha del caso puede elegir el **responsable**
+  en el selector de asignación y pulsar **Guardar asignación**. También
+  puede dejar el caso **sin asignar**.
+- Cada liberación o reasignación queda registrada como mensaje
+  **Operativo** y, si el nuevo responsable tiene Telegram vinculado, le
+  llega un aviso.
 
 ---
 

@@ -3,16 +3,21 @@ from collections import Counter
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.deps import get_current_user, require_admin, require_operador
+from app.core.deps import (
+    get_current_user,
+    is_admin,
+    require_admin,
+    require_operador,
+)
 from app.core.logging import get_logger
 from app.db.session import get_db
 from app.models import (
     AutorComunicacion, CasoEscalamiento, ClaseComunicacion, Comunicacion,
-    DireccionComunicacion, EstadoCaso, Pedido,
+    DireccionComunicacion, EstadoCaso, Pedido, Usuario,
 )
 from app.schemas.agent import (
     AgentMetrics,
@@ -58,21 +63,35 @@ def _thread_message(c: Comunicacion) -> ThreadMessage:
 @router.get(
     "/chats",
     response_model=list[ChatResumen],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_operador)],
     summary="Lista de conversaciones (una por pedido)",
 )
 def chats(
     limite: int = Query(30, ge=1, le=100),
     db: Session = Depends(get_db),
+    current=Depends(require_operador),
 ):
     """Chats con cliente, último mensaje, caso abierto y si hay asesor reciente.
 
-    El hilo de conversación es por pedido: así se arma la bandeja de un
-    asistente sin crear tablas nuevas.
+    El operador sólo ve conversaciones de casos que tenga asignados. El
+    administrador ve toda la bandeja para supervisar y apoyar.
     """
-    pedidos = db.scalars(
-        select(Pedido).order_by(Pedido.fecha_ingreso.desc()).limit(limite)
-    ).all()
+    es_admin = is_admin(current)
+    if es_admin:
+        stmt = select(Pedido).order_by(Pedido.fecha_ingreso.desc())
+    else:
+        asignados = select(CasoEscalamiento.pedido_id).where(
+            CasoEscalamiento.responsable_id == current.id,
+            CasoEscalamiento.estado.in_(
+                [EstadoCaso.ABIERTO, EstadoCaso.EN_PROCESO]
+            ),
+        )
+        stmt = (
+            select(Pedido)
+            .where(Pedido.id.in_(asignados))
+            .order_by(Pedido.fecha_ingreso.desc())
+        )
+    pedidos = db.scalars(stmt.limit(limite)).all()
     if not pedidos:
         return []
     ids = [p.id for p in pedidos]
@@ -112,6 +131,12 @@ def chats(
     for cs in casos:
         caso_por_pedido.setdefault(cs.pedido_id, cs)
 
+    responsables = {
+        c.responsable_id: c.responsable_nombre
+        for c in casos
+        if c.responsable_id is not None
+    }
+
     limite_asesor = datetime.utcnow() - timedelta(
         minutes=settings.AGENT_RECENT_HUMAN_RESPONSE_MINUTES
     )
@@ -144,6 +169,22 @@ def chats(
                 ultima_autor=u.autor if u else None,
                 caso_abierto_id=cs.id if cs else None,
                 caso_abierto_motivo=cs.motivo if cs else None,
+                responsable_id=cs.responsable_id if cs else None,
+                responsable_nombre=(
+                    responsables.get(cs.responsable_id) if cs else None
+                ),
+                puede_responder=bool(
+                    cs
+                    and cs.estado != EstadoCaso.CERRADO
+                    and (
+                        es_admin
+                        or cs.responsable_id is None
+                        or cs.responsable_id == current.id
+                    )
+                ),
+                cliente_telegram_vinculado=bool(
+                    p.cliente and p.cliente.telegram_chat_id
+                ),
                 asesor_reciente=p.id in con_asesor,
             )
         )
@@ -155,7 +196,7 @@ def chats(
 @router.get(
     "/thread",
     response_model=list[ThreadMessage],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_operador)],
     summary="Mensajes del hilo de conversación de un pedido",
 )
 def thread(
@@ -164,9 +205,37 @@ def thread(
         False, description="Incluye comandos y avisos internos (auditoría)"
     ),
     db: Session = Depends(get_db),
+    current=Depends(require_operador),
 ):
-    if db.get(Pedido, pedido_id) is None:
+    pedido = db.get(Pedido, pedido_id)
+    if pedido is None:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+    if not is_admin(current):
+        caso_activo = db.scalar(
+            select(CasoEscalamiento)
+            .where(
+                CasoEscalamiento.pedido_id == pedido.id,
+                CasoEscalamiento.estado.in_(
+                    [EstadoCaso.ABIERTO, EstadoCaso.EN_PROCESO]
+                ),
+            )
+            .order_by(CasoEscalamiento.fecha_apertura.desc())
+            .limit(1)
+        )
+        if caso_activo is None:
+            raise HTTPException(
+                status_code=403,
+                detail="Sólo puedes ver conversaciones de casos asignados a ti.",
+            )
+        if (
+            caso_activo.responsable_id is not None
+            and caso_activo.responsable_id != current.id
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Esta conversación está asignada a otro operador.",
+            )
     stmt = select(Comunicacion).where(Comunicacion.pedido_id == pedido_id)
     if not incluir_operativos:
         stmt = stmt.where(Comunicacion.clase == ClaseComunicacion.CLIENTE)
@@ -199,6 +268,7 @@ def human_reply(
     if pedido is None:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
+    es_admin = is_admin(current)
     caso = db.scalar(
         select(CasoEscalamiento)
         .where(
@@ -212,7 +282,11 @@ def human_reply(
     try:
         if caso is not None:
             caso, com, envio = responder_caso(
-                db, caso.id, payload.contenido, usuario_id=current.id,
+                db,
+                caso.id,
+                payload.contenido,
+                usuario_id=current.id,
+                es_admin=es_admin,
             )
             aviso = (
                 f"Caso #{caso.id} en proceso (registrada la primera respuesta humana)."
@@ -223,6 +297,14 @@ def human_reply(
                     f"Telegram: {envio.error or 'error desconocido'}."
                 )
         else:
+            if not es_admin:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Sólo puedes responder conversaciones con un caso "
+                        "asignado a ti."
+                    ),
+                )
             com, envio = enviar_mensaje_humano(
                 db, pedido, payload.contenido, usuario_id=current.id,
             )

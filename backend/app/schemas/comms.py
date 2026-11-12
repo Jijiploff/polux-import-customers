@@ -100,6 +100,7 @@ class CasoRead(_OrmModel):
     fecha_apertura: datetime
     fecha_primera_accion: Optional[datetime]
     responsable_id: Optional[int]
+    responsable_nombre: Optional[str] = None
     estado: EstadoCaso
     fecha_cierre: Optional[datetime]
 
@@ -113,14 +114,30 @@ class CasoCreate(BaseModel):
 
 class CasoUpdate(BaseModel):
     estado: Optional[EstadoCaso] = None
-    responsable_id: Optional[int] = None
+    responsable_id: Optional[int] = Field(
+        default=None,
+        description=(
+            "Obsoleto. Usa POST /casos/{caso_id}/reasignar: la asignación "
+            "debe quedar auditada y notificada."
+        ),
+    )
     registrar_primera_accion: bool = False
+
+
+class CasoReasignacionCreate(BaseModel):
+    """Admin asigna/reasigna; el operador sólo puede liberar su propio caso."""
+
+    responsable_id: Optional[int] = None
+
+
+class CasoReasignacionRead(BaseModel):
+    caso: CasoRead
+    aviso: Optional[str] = None
 
 
 class CasoDetalleRead(CasoRead):
     """Ficha del caso con el contexto necesario para responderlo."""
 
-    responsable_nombre: Optional[str] = None
     pedido_codigo: str
     cliente_nombre: str
     cliente_telegram_vinculado: bool = False

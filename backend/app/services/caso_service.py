@@ -16,6 +16,7 @@ from app.models import (
     DireccionComunicacion,
     EstadoCaso,
     Pedido,
+    RolCodigo,
     Usuario,
 )
 from app.schemas.agent import ThreadMessage
@@ -52,13 +53,27 @@ def crear_caso(db: Session, payload: CasoCreate, *, usuario_id: int) -> CasoEsca
 
 
 def actualizar_caso(
-    db: Session, caso_id: int, payload: CasoUpdate, *, usuario_id: int
+    db: Session,
+    caso_id: int,
+    payload: CasoUpdate,
+    *,
+    usuario_id: int,
+    es_admin: bool = False,
 ) -> CasoEscalamiento:
     caso = db.get(CasoEscalamiento, caso_id)
     if caso is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Caso no encontrado")
     if caso.estado == EstadoCaso.CERRADO:
         raise HTTPException(status.HTTP_409_CONFLICT, "El caso ya está cerrado")
+    if (
+        not es_admin
+        and caso.responsable_id is not None
+        and caso.responsable_id != usuario_id
+    ):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Este caso está asignado a otro operador.",
+        )
 
     if payload.registrar_primera_accion and caso.fecha_primera_accion is None:
         caso.fecha_primera_accion = datetime.utcnow()
@@ -66,7 +81,12 @@ def actualizar_caso(
             caso.estado = EstadoCaso.EN_PROCESO
 
     if payload.responsable_id is not None:
-        caso.responsable_id = payload.responsable_id
+        # La asignación siempre debe pasar por `reasignar_caso` para quedar
+        # auditada como OPERATIVO y avisar al nuevo responsable.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Usa POST /casos/{id}/reasignar para asignar o liberar un caso.",
+        )
 
     if payload.estado is not None:
         # Regla: no cerrar sin primera acción (trazabilidad mínima)
@@ -215,18 +235,25 @@ def responder_caso(
     *,
     usuario_id: int,
     telegram: TelegramService | None = None,
+    es_admin: bool = False,
 ) -> tuple[CasoEscalamiento, Comunicacion, TelegramSendResult]:
-    """Responde un caso desde Telegram y lo envía al cliente.
+    """Responde un caso desde Telegram o la plataforma y lo envía al cliente.
 
     El primer operador que responde queda como responsable. Si el caso ya
-    fue tomado por otro, se rechaza para evitar respuestas duplicadas.
+    fue tomado por otro operador, se rechaza para evitar respuestas
+    duplicadas. Un ADMIN puede responder casos ajenos sin robar la
+    asignación; esa es una facultad exclusiva de supervisión.
     """
     caso = db.get(CasoEscalamiento, caso_id)
     if caso is None:
         raise CasoError("no_encontrado", "Caso no encontrado.")
     if caso.estado == EstadoCaso.CERRADO:
         raise CasoError("ya_cerrado", f"El caso #{caso.id} ya está cerrado.")
-    if caso.responsable_id is not None and caso.responsable_id != usuario_id:
+    if (
+        not es_admin
+        and caso.responsable_id is not None
+        and caso.responsable_id != usuario_id
+    ):
         raise CasoError(
             "asignado",
             f"El caso #{caso.id} ya está siendo atendido por "
@@ -247,8 +274,9 @@ def responder_caso(
             "código de pedido junto con su DNI para vincular el chat.",
         )
 
-    # Claim atómico a nivel de aplicación: la sesión se cierra por update.
-    if caso.responsable_id is None:
+    # El operador que responde un caso libre lo reclama. El admin responde
+    # sin autoasignarse para no bloquear a los operadores.
+    if caso.responsable_id is None and not es_admin:
         caso.responsable_id = usuario_id
     if caso.fecha_primera_accion is None:
         caso.fecha_primera_accion = datetime.utcnow()
@@ -306,14 +334,22 @@ def cerrar_caso(
     usuario_id: int,
     telegram: TelegramService | None = None,
     avisar_cliente: bool = True,
+    es_admin: bool = False,
 ) -> tuple[CasoEscalamiento, Comunicacion | None]:
-    """Cierra el caso y, si el cliente tiene Telegram, le avisa."""
+    """Cierra el caso y, si el cliente tiene Telegram, le avisa.
+
+    Un ADMIN puede cerrar casos asignados a otros operadores.
+    """
     caso = db.get(CasoEscalamiento, caso_id)
     if caso is None:
         raise CasoError("no_encontrado", "Caso no encontrado.")
     if caso.estado == EstadoCaso.CERRADO:
         raise CasoError("ya_cerrado", f"El caso #{caso.id} ya está cerrado.")
-    if caso.responsable_id is not None and caso.responsable_id != usuario_id:
+    if (
+        not es_admin
+        and caso.responsable_id is not None
+        and caso.responsable_id != usuario_id
+    ):
         raise CasoError(
             "asignado",
             f"El caso #{caso.id} está siendo atendido por "
@@ -321,7 +357,7 @@ def cerrar_caso(
         )
 
     pedido = db.get(Pedido, caso.pedido_id)
-    if caso.responsable_id is None:
+    if caso.responsable_id is None and not es_admin:
         caso.responsable_id = usuario_id
     if caso.fecha_primera_accion is None:
         caso.fecha_primera_accion = datetime.utcnow()
@@ -353,4 +389,98 @@ def cerrar_caso(
     if com is not None:
         db.refresh(com)
     logger.info("caso_cerrado caso_id=%s usuario_id=%s", caso.id, usuario_id)
+    return caso, com
+
+
+def reasignar_caso(
+    db: Session,
+    caso_id: int,
+    responsable_id: int | None,
+    *,
+    usuario_id: int,
+    es_admin: bool = False,
+) -> tuple[CasoEscalamiento, Comunicacion | None]:
+    """Asigna, reasigna o libera un caso.
+
+    Reglas:
+    - ADMIN puede asignar a cualquier ADMIN/OPERADOR activo o liberar.
+    - OPERADOR sólo puede liberar un caso que tenga asignado.
+    - La operación queda auditada como mensaje OPERATIVO.
+    """
+    caso = db.get(CasoEscalamiento, caso_id)
+    if caso is None:
+        raise CasoError("no_encontrado", "Caso no encontrado.")
+    if caso.estado == EstadoCaso.CERRADO:
+        raise CasoError("ya_cerrado", f"El caso #{caso.id} ya está cerrado.")
+
+    if not es_admin:
+        if caso.responsable_id != usuario_id:
+            raise CasoError(
+                "permiso",
+                "Sólo puedes liberar un caso que esté asignado a ti.",
+            )
+        if responsable_id is not None:
+            raise CasoError(
+                "permiso",
+                "Sólo un administrador puede asignar o reasignar casos.",
+            )
+
+    destino: Usuario | None = None
+    if responsable_id is not None:
+        destino = db.get(Usuario, responsable_id)
+        if destino is None or not destino.activo:
+            raise CasoError(
+                "destino_invalido",
+                "El usuario de destino no existe o está inactivo.",
+            )
+        roles = {r.rol.codigo for r in destino.roles if r.rol is not None}
+        if not (roles & {RolCodigo.ADMIN, RolCodigo.OPERADOR}):
+            raise CasoError(
+                "destino_invalido",
+                "Sólo se puede asignar a un ADMIN o OPERADOR activo.",
+            )
+
+    if caso.responsable_id == responsable_id:
+        return caso, None
+
+    anterior = _nombre_usuario(db, caso.responsable_id) if caso.responsable_id else None
+    caso.responsable_id = responsable_id
+    caso.updated_by_id = usuario_id
+
+    actor = _nombre_usuario(db, usuario_id)
+    if destino is None:
+        contenido = (
+            f"🔓 Caso #{caso.id} liberado por {actor}. "
+            "Queda sin asignar para que otro operador lo tome."
+        )
+    else:
+        contenido = (
+            f"🔁 Caso #{caso.id} reasignado a {destino.nombre_completo} "
+            f"por {actor}."
+        )
+        if anterior:
+            contenido += f" Responsable anterior: {anterior}."
+
+    com = Comunicacion(
+        pedido_id=caso.pedido_id,
+        direccion=DireccionComunicacion.SALIENTE,
+        canal=Canal.WEB,
+        contenido=contenido,
+        autor=AutorComunicacion.AGENTE,
+        clase=ClaseComunicacion.OPERATIVO,
+        escalado=False,
+        caso_id=caso.id,
+        usuario_id=usuario_id,
+        fecha=datetime.utcnow(),
+        created_by_id=usuario_id,
+        updated_by_id=usuario_id,
+    )
+    db.add(com)
+    db.commit()
+    db.refresh(caso)
+    db.refresh(com)
+    logger.info(
+        "caso_reasignado caso_id=%s responsable_id=%s usuario_id=%s",
+        caso.id, responsable_id, usuario_id,
+    )
     return caso, com

@@ -320,6 +320,11 @@ class CasoEscalamiento(Base, TimestampMixin, AuditUserMixin):
     fecha_cierre: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     pedido = relationship("Pedido")
+    responsable = relationship("Usuario", foreign_keys=[responsable_id])
+
+    @property
+    def responsable_nombre(self) -> str | None:
+        return self.responsable.nombre_completo if self.responsable else None
 
 
 class CasoTelegramNotificacion(Base, TimestampMixin):

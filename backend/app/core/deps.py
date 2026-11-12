@@ -39,6 +39,19 @@ def _user_role_codes(user: Usuario) -> set[RolCodigo]:
     return {r.rol.codigo for r in user.roles if r.rol is not None}
 
 
+def user_role_codes(user: Usuario) -> set[RolCodigo]:
+    """Roles efectivos del usuario (público para reglas de negocio)."""
+    return _user_role_codes(user)
+
+
+def has_role(user: Usuario, rol: RolCodigo) -> bool:
+    return rol in _user_role_codes(user)
+
+
+def is_admin(user: Usuario) -> bool:
+    return has_role(user, RolCodigo.ADMIN)
+
+
 def require_roles(*roles: RolCodigo):
     """Factory de dependencia que exige al usuario pertenecer a alguno de los roles."""
     allowed = set(roles)

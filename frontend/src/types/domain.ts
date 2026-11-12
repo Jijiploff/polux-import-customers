@@ -108,8 +108,8 @@ export interface Caso {
   id: number; pedido_id: number; motivo: MotivoEscalamiento;
   prioridad: PrioridadCaso; descripcion: string;
   fecha_apertura: string; fecha_primera_accion?: string | null;
-  responsable_id?: number | null; estado: EstadoCaso;
-  fecha_cierre?: string | null;
+  responsable_id?: number | null; responsable_nombre?: string | null;
+  estado: EstadoCaso; fecha_cierre?: string | null;
 }
 
 export interface CasoDetalle extends Caso {

@@ -169,12 +169,13 @@ atrasados, casos/imprevistos abiertos, alertas activas) y `eventos` con
 
 | Método | Ruta | Descripción | Rol |
 |---|---|---|---|
-| GET | `/casos` | Listar casos de escalamiento | OPERADOR+ |
-| GET | `/casos/{caso_id}` | Ficha del caso (pedido, cliente, Telegram vinculado, responsable y si puedes responder) | autenticado |
+| GET | `/casos` | Listar casos: ADMIN ve todos; OPERADOR ve los asignados a él + los libres para reclamar | OPERADOR+ |
+| GET | `/casos/{caso_id}` | Ficha del caso (pedido, cliente, Telegram vinculado, responsable y si puedes responder). Un OPERADOR no puede abrir un caso asignado a otro | OPERADOR+ |
 | POST | `/casos` | Crear caso manual | OPERADOR |
-| POST | `/casos/{caso_id}/responder` | Responder al cliente desde la plataforma; el primer operador queda como responsable y el mensaje sale por Telegram (400 `sin_telegram` si el cliente no vinculó su chat) | OPERADOR |
-| POST | `/casos/{caso_id}/cerrar` | Cerrar el caso y avisar al cliente por Telegram si está vinculado | OPERADOR |
-| PATCH | `/casos/{caso_id}` | Primera acción, cambio de estado | OPERADOR |
+| POST | `/casos/{caso_id}/responder` | Responder al cliente desde la plataforma; el primer operador queda como responsable y el mensaje sale por Telegram (400 `sin_telegram` si el cliente no vinculó su chat). ADMIN puede responder casos ajenos sin cambiar al responsable | OPERADOR+ |
+| POST | `/casos/{caso_id}/cerrar` | Cerrar el caso y avisar al cliente por Telegram si está vinculado | OPERADOR+ |
+| POST | `/casos/{caso_id}/reasignar` | ADMIN asigna/reasigna a otro ADMIN/OPERADOR o libera (`responsable_id=null`); un OPERADOR sólo puede liberar un caso propio. Genera un mensaje `OPERATIVO` y avisa al nuevo responsable por Telegram | OPERADOR+ |
+| PATCH | `/casos/{caso_id}` | Primera acción, cambio de estado. No cambia `responsable_id`: usa `/reasignar` para que quede auditado y notificado | OPERADOR+ |
 
 ### Imprevistos
 
@@ -244,9 +245,9 @@ Cada comunicación tiene una `clase`:
 | POST | `/agent/messages/incoming` | Procesa un mensaje entrante (simulación local) | autenticado |
 | GET | `/agent/provider` | Proveedor LLM activo (mock / gemini) | autenticado |
 | GET | `/agent/metrics` | Métricas agregadas del agente | autenticado |
-| GET | `/agent/chats` | Bandeja de conversaciones: un chat por pedido (cliente, preview, caso abierto, asesor reciente). Solo cuenta mensajes `CLIENTE` | autenticado |
-| GET | `/agent/thread?pedido_id=` | Hilo de conversación de un pedido (mensajes con clasificación y caso). Por defecto solo `CLIENTE`; `incluir_operativos=true` añade los internos | autenticado |
-| POST | `/agent/human-reply` | Responde como persona sin caso. Se mantiene por compatibilidad; la UI de casos usa `POST /casos/{id}/responder` | OPERADOR |
+| GET | `/agent/chats` | Bandeja del Contestador: un chat por pedido (cliente, preview, caso abierto, responsable). ADMIN ve todo; OPERADOR solo sus casos asignados. Solo cuenta mensajes `CLIENTE` | OPERADOR+ |
+| GET | `/agent/thread?pedido_id=` | Hilo de conversación de un pedido. Por defecto solo `CLIENTE`; `incluir_operativos=true` añade los internos. OPERADOR: casos libres o propios; ADMIN: cualquiera | OPERADOR+ |
+| POST | `/agent/human-reply` | Responde como persona sin caso. OPERADOR: solo casos libres o propios; ADMIN: cualquier pedido, incluso sin caso. La UI de casos usa `POST /casos/{id}/responder` | OPERADOR+ |
 | POST | `/agent/test/classify` | Clasifica un texto sin ejecutar el flujo (degrada al motor local si el LLM cae) | ADMIN |
 
 ### Operación manual (admin)

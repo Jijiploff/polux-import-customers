@@ -413,15 +413,22 @@ POST   /api/v1/hitos/{id}/completar             # Completar un hito
 POST   /api/v1/entregas                         # Crear entrega (completa/parcial)
 POST   /api/v1/entregas/{id}/completar          # Conformidad por ítem
 
-GET    /api/v1/casos                            # Bandeja de casos
+GET    /api/v1/casos                            # Bandeja (ADMIN: todos; OPERADOR: asignados + libres)
 POST   /api/v1/casos                            # Crear caso
-PATCH  /api/v1/casos/{id}                       # Actualizar (1ª acción, cierre)
+GET    /api/v1/casos/{id}                       # Ficha del caso
+POST   /api/v1/casos/{id}/responder             # Responder al cliente por Telegram
+POST   /api/v1/casos/{id}/cerrar                # Cerrar caso
+POST   /api/v1/casos/{id}/reasignar             # Asignar/reasignar (ADMIN) o liberar (OPERADOR)
+PATCH  /api/v1/casos/{id}                       # Actualizar (1ª acción, estado)
 
 GET    /api/v1/alertas                          # Alertas abiertas
 PATCH  /api/v1/alertas/{id}/atender             # Marcar atendida
 
 POST   /api/v1/agent/messages/incoming          # Simular mensaje al agente IA
 GET    /api/v1/agent/metrics                    # Métricas del agente
+GET    /api/v1/agent/chats                      # Contestador: chats visibles por rol
+GET    /api/v1/agent/thread?pedido_id=          # Hilo de conversación (solo CLIENTE por defecto)
+POST   /api/v1/agent/human-reply                # Respuesta humana sin caso (ADMIN)
 
 GET    /api/v1/dashboard/resumen                # 7 KPIs actuales
 GET    /api/v1/kpis/{codigo}/serie              # Serie temporal filtrable

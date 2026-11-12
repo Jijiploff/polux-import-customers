@@ -409,10 +409,19 @@ Con el bot corriendo (polling en una terminal), ejecuta las siguientes pruebas.
    /responder N Hola, ya estamos revisando tu caso.
    ```
 6. El primer operador que responde queda como responsable. Si otro intenta
-   responder, el bot le indica quién está atendiendo el caso.
+   responder, el bot le indica quién está atendiendo el caso. Un `ADMIN` sí
+   puede responder casos ajenos y la asignación se mantiene.
+7. Un operador puede soltar su caso con `/liberar N`; queda sin asignar para
+   que otro lo tome. El historial y la primera acción se conservan.
+
+> **Reglas de visibilidad:** `/casos` muestra al `ADMIN` todos los casos; al
+> `OPERADOR`, solo los asignados a él y los libres. `/caso N` y los botones
+> rechazan casos asignados a otro operador. El primer operador que responde
+> un caso libre lo reclama.
 
 > **Alternativa sin usar tu Telegram personal:** entra a la plataforma web
-> como ADMIN/OPERADOR, abre **Casos → Responder** y escribe desde ahí. Usa el
+> como ADMIN/OPERADOR, abre **Contestador** (solo asignados) o
+> **Casos → Responder** (asignados + libres) y escribe desde ahí. Usa el
 > mismo `caso_service`: el primer operador queda asignado, la respuesta sale
 > por Telegram y se registra igual. Si el cliente no vinculó su Telegram, la
 > web responde `400 sin_telegram`, **no asigna el caso** y guarda el intento
@@ -429,10 +438,11 @@ Con el bot corriendo (polling en una terminal), ejecuta las siguientes pruebas.
 ### Comandos de operador
 
 ```
-/casos                  → casos abiertos o en proceso
+/casos                  → tus casos + los libres (ADMIN: todos)
 /caso N                 → ficha + línea de tiempo
 /responder N mensaje    → responder al cliente
 /cerrar N               → cerrar el caso
+/liberar N              → soltar tu caso para que otro lo tome
 /salir                  → salir del modo respuesta
 ```
 

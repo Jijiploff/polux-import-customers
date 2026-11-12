@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { casosApi } from "../../api/casos";
 import { pedidosApi } from "../../api/pedidos";
+import { adminApi } from "../../api/admin";
 import { agentApi, type ThreadMessage } from "../../api/agent";
 import { ApiError } from "../../api/client";
 import { DataTable } from "../../components/DataTable";
@@ -12,6 +13,7 @@ import { Timeline } from "../../components/Timeline";
 import { useAuth } from "../../auth/AuthContext";
 import type {
   Caso, CasoDetalle, EstadoCaso, MotivoEscalamiento, Pedido, PrioridadCaso,
+  Usuario,
 } from "../../types/domain";
 
 const MOTIVOS: MotivoEscalamiento[] = [
@@ -29,6 +31,9 @@ function mensajeError(err: unknown): string {
     if (err.status === 409) {
       return "El caso ya está siendo atendido por otro operador o fue cerrado.";
     }
+    if (err.status === 403) {
+      return "No tienes permiso para realizar esta acción sobre este caso.";
+    }
   }
   return "No se pudo completar la operación. Inténtalo de nuevo.";
 }
@@ -44,11 +49,13 @@ function hora(fecha: string): string {
 }
 
 export function CasosPage() {
-  const { hasRole } = useAuth();
+  const { hasRole, userId } = useAuth();
+  const esAdmin = hasRole("ADMIN");
   const [rows, setRows] = useState<Caso[] | null>(null);
   const [estado, setEstado] = useState<EstadoCaso | "">("ABIERTO");
   const [accionError, setAccionError] = useState("");
   const [accionAviso, setAccionAviso] = useState("");
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
 
   // Formulario de nuevo caso
   const [showForm, setShowForm] = useState(false);
@@ -69,11 +76,20 @@ export function CasosPage() {
   const [enviandoRespuesta, setEnviandoRespuesta] = useState(false);
   const [replyError, setReplyError] = useState("");
   const [replyAviso, setReplyAviso] = useState("");
+  const [responsableSel, setResponsableSel] = useState("");
+  const [reasignando, setReasignando] = useState(false);
 
   async function load() {
     setRows(await casosApi.list({ estado: estado || undefined }));
   }
   useEffect(() => { load(); }, [estado]);
+
+  useEffect(() => {
+    if (!esAdmin) return;
+    adminApi.usuarios.list()
+      .then((lista) => setUsuarios(lista))
+      .catch(() => setUsuarios([]));
+  }, [esAdmin]);
 
   async function openForm() {
     setShowForm(true);
@@ -128,6 +144,37 @@ export function CasosPage() {
     }
   }
 
+  async function reasignarCaso(id: number, nuevo: number | null) {
+    if (reasignando) return;
+    setReasignando(true);
+    setReplyError("");
+    setReplyAviso("");
+    try {
+      const res = await casosApi.reasignar(id, nuevo);
+      setReplyAviso(res.aviso ?? "Asignación actualizada.");
+      const d = await casosApi.detalle(id);
+      setDetalle(d);
+      setResponsableSel(d.responsable_id ? String(d.responsable_id) : "");
+      await load();
+    } catch (err) {
+      setReplyError(mensajeError(err));
+    } finally {
+      setReasignando(false);
+    }
+  }
+
+  async function liberarCaso(id: number) {
+    setAccionError("");
+    setAccionAviso("");
+    try {
+      const res = await casosApi.reasignar(id, null);
+      setAccionAviso(res.aviso ?? "Caso liberado.");
+      load();
+    } catch (err) {
+      setAccionError(mensajeError(err));
+    }
+  }
+
   async function abrirResponder(caso: Caso) {
     setReplyCaso(caso);
     setDetalle(null);
@@ -135,6 +182,7 @@ export function CasosPage() {
     setRespuesta("");
     setReplyError("");
     setReplyAviso("");
+    setResponsableSel(caso.responsable_id ? String(caso.responsable_id) : "");
     setCargandoDetalle(true);
     try {
       const [d, h] = await Promise.all([
@@ -143,6 +191,7 @@ export function CasosPage() {
       ]);
       setDetalle(d);
       setHilo(h);
+      setResponsableSel(d.responsable_id ? String(d.responsable_id) : "");
     } catch (err) {
       setReplyError(mensajeError(err));
     } finally {
@@ -157,6 +206,7 @@ export function CasosPage() {
     setRespuesta("");
     setReplyError("");
     setReplyAviso("");
+    setResponsableSel("");
   }
 
   async function enviarRespuesta(e: FormEvent) {
@@ -296,6 +346,57 @@ export function CasosPage() {
                     : "Otro operador ya tomó este caso."}
                 </div>
               )}
+              {esAdmin && detalle.estado !== "CERRADO" && (
+                <div style={{
+                  marginTop: 8, paddingTop: 8, borderTop: "1px solid #e2e8f0",
+                  display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap",
+                }}>
+                  <strong>Asignación:</strong>
+                  <select
+                    value={responsableSel}
+                    onChange={(e) => setResponsableSel(e.target.value)}
+                    disabled={reasignando}
+                  >
+                    <option value="">Sin asignar</option>
+                    {usuarios
+                      .filter((u) => u.activo
+                        && u.roles.some((r) => r === "ADMIN" || r === "OPERADOR"))
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.nombre_completo}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={reasignando}
+                    onClick={() => reasignarCaso(
+                      detalle.id,
+                      responsableSel ? Number(responsableSel) : null,
+                    )}
+                  >
+                    {reasignando ? "Guardando…" : "Guardar asignación"}
+                  </button>
+                </div>
+              )}
+              {esAdmin && detalle.responsable_id && detalle.responsable_id !== userId
+                && detalle.estado !== "CERRADO" && (
+                <div style={{ marginTop: 5, color: "#1d4ed8" }}>
+                  Puedes responder aunque el caso esté asignado a otro operador.
+                  La asignación se mantendrá.
+                </div>
+              )}
+              {!esAdmin && detalle.responsable_id === userId
+                && detalle.estado !== "CERRADO" && (
+                <button
+                  type="button"
+                  style={{ marginTop: 8 }}
+                  onClick={() => reasignarCaso(detalle.id, null)}
+                  disabled={reasignando}
+                >
+                  {reasignando ? "Liberando…" : "Liberar caso"}
+                </button>
+              )}
             </div>
 
             <div style={{ marginBottom: "0.7rem" }}>
@@ -404,6 +505,9 @@ export function CasosPage() {
               render: (c) => <StatusBadge value={c.prioridad} /> },
             { key: "estado", header: "Estado",
               render: (c) => <StatusBadge value={c.estado} /> },
+            { key: "resp", header: "Responsable",
+              render: (c) => c.responsable_nombre
+                ?? (c.responsable_id ? `#${c.responsable_id}` : "sin asignar") },
             { key: "aper", header: "Apertura",
               render: (c) => new Date(c.fecha_apertura).toLocaleString() },
             { key: "acc", header: "Acciones",
@@ -411,6 +515,9 @@ export function CasosPage() {
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                   {c.estado !== "CERRADO" && (
                     <button onClick={() => abrirResponder(c)}>Responder</button>
+                  )}
+                  {c.estado !== "CERRADO" && c.responsable_id === userId && (
+                    <button onClick={() => liberarCaso(c.id)}>Liberar</button>
                   )}
                   {!c.fecha_primera_accion && c.estado !== "CERRADO" && (
                     <button onClick={() => registrarPrimeraAccion(c.id)}>Primera acción</button>

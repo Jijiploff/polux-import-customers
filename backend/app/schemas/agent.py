@@ -98,6 +98,10 @@ class ChatResumen(BaseModel):
     ultima_autor: Optional[AutorComunicacion] = None
     caso_abierto_id: Optional[int] = None
     caso_abierto_motivo: Optional[MotivoEscalamiento] = None
+    responsable_id: Optional[int] = None
+    responsable_nombre: Optional[str] = None
+    puede_responder: bool = False
+    cliente_telegram_vinculado: bool = False
     # True si un asesor respondió recientemente → el agente no interviene
     asesor_reciente: bool = False
 

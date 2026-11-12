@@ -74,6 +74,10 @@ export interface ChatResumen {
   ultima_autor?: AutorCom | null;
   caso_abierto_id?: number | null;
   caso_abierto_motivo?: string | null;
+  responsable_id?: number | null;
+  responsable_nombre?: string | null;
+  puede_responder: boolean;
+  cliente_telegram_vinculado: boolean;
   asesor_reciente: boolean;
 }
 

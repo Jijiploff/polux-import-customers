@@ -244,10 +244,11 @@ flowchart LR
 El operador puede atender al cliente por **dos canales equivalentes**:
 
 1. **Telegram**, respondiendo al aviso del caso o con los comandos del bot
-   (`/casos`, botones *Ver caso* / *Responder*).
-2. **Plataforma web**, desde **Casos → Responder**: se ve el hilo, el
-   responsable, si el cliente tiene Telegram vinculado y se escribe la
-   respuesta sin usar el móvil del operador.
+   (`/casos`, botones *Ver caso* / *Responder*, `/liberar`).
+2. **Plataforma web**, desde **Contestador** (solo conversaciones
+   asignadas al operador) o **Casos → Responder** (asignados + libres para
+   reclamar). Se ve el hilo, el responsable, si el cliente tiene Telegram
+   vinculado y se escribe la respuesta sin usar el móvil del operador.
 
 Ambos canales comparten el mismo servicio (`caso_service`), así que la
 asignación, la línea de tiempo y la auditoría son idénticas. **No se crean
@@ -262,12 +263,13 @@ tablas nuevas**: el hilo sigue siendo `comunicacion` filtrada por
 
 | Pantalla / acción | Endpoint | Qué hace |
 |---|---|---|
-| Bandeja de conversaciones | `GET /agent/chats` | Un chat por pedido con cliente, último mensaje `CLIENTE`, número de mensajes, caso abierto y si hay asesor respondiendo |
-| Hilo | `GET /agent/thread?pedido_id=` | Mensajes ordenados con clasificación, plantilla, estado de entrega y caso. `incluir_operativos=true` añade los internos (auditoría) |
+| Bandeja de conversaciones | `GET /agent/chats` | Un chat por pedido con cliente, último mensaje `CLIENTE`, número de mensajes, caso abierto y responsable. ADMIN ve todo; OPERADOR solo sus casos asignados |
+| Hilo | `GET /agent/thread?pedido_id=` | Mensajes ordenados con clasificación, plantilla, estado de entrega y caso. `incluir_operativos=true` añade los internos (auditoría). Un OPERADOR solo abre casos libres o propios |
 | Ficha del caso | `GET /casos/{id}` | Pedido, cliente, responsable y si el usuario actual puede responder |
-| Responder caso | `POST /casos/{id}/responder` | Envía la respuesta al cliente por Telegram y registra el mensaje como `HUMANO` / `CLIENTE` |
+| Responder caso | `POST /casos/{id}/responder` | Envía la respuesta al cliente por Telegram y registra el mensaje como `HUMANO` / `CLIENTE`. ADMIN puede apoyar sin cambiar la asignación |
 | Cerrar caso | `POST /casos/{id}/cerrar` | Cierra el caso y avisa al cliente si tiene Telegram |
-| Compatibilidad | `POST /agent/human-reply` | Respuesta humana sin caso; se conserva para integraciones antiguas |
+| Asignar / liberar | `POST /casos/{id}/reasignar` | ADMIN asigna o reasigna; el OPERADOR responsable libera con `responsable_id=null`. Audita como `OPERATIVO` y avisa por Telegram |
+| Compatibilidad | `POST /agent/human-reply` | Respuesta humana sin caso; solo ADMIN puede usarlo con pedidos sin caso |
 | Prueba del agente | `POST /agent/messages/incoming` | Simula un mensaje entrante: clasifica → responde o escala |
 
 ```mermaid
@@ -295,13 +297,22 @@ sequenceDiagram
     T-->>C: «Ya estamos revisando tu caso»
     B-->>W: mensaje registrado + estado del caso
 
-    Note over W,B: Si otro operador intenta responder → 409.<br/>Si el cliente no vinculó Telegram → 400 y queda un registro OPERATIVO.
+    Note over W,B: Si otro operador intenta responder → 409.<br/>ADMIN puede apoyar sin robar la asignación.<br/>Si el cliente no vinculó Telegram → 400 y queda un registro OPERATIVO.
 ```
 
-**Reglas de la respuesta local (OPERADOR+):**
+**Reglas de visibilidad y asignación (OPERADOR+):**
 
-- El **primer operador** que responde queda como `responsable_id`; los
-  demás reciben `409` para evitar respuestas duplicadas.
+- `ADMIN` ve todos los clientes, chats y casos; puede responder, asignar,
+  reasignar, liberar y cerrar cualquier caso.
+- `OPERADOR` ve en **Contestador** solo los chats de casos asignados a él.
+  En **Casos** ve los asignados + los libres para poder reclamarlos.
+- El **primer operador** que responde un caso libre queda como
+  `responsable_id`; los demás reciben `409` para evitar duplicados.
+- Un operador puede **liberar** su propio caso (`responsable_id=null`) para
+  que otro lo tome. La liberación conserva historial, primera acción y
+  estado, y queda auditada como `OPERATIVO`.
+- `ADMIN` puede reasignar a cualquier `ADMIN`/`OPERADOR` activo. La
+  reasignación se audita y se avisa por Telegram al nuevo responsable.
 - La respuesta se registra con `autor=HUMANO`, `clase=CLIENTE`,
   `usuario_id`/`created_by` del usuario real y `estado_entrega` según el
   envío: **nadie puede firmar por otro** (§8).

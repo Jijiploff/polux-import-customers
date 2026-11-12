@@ -20,7 +20,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -44,7 +44,12 @@ from app.models import (
 )
 from app.schemas.agent import IncomingMessage
 from app.services.agent_service import AgentService
-from app.services.caso_service import CasoError, cerrar_caso, responder_caso
+from app.services.caso_service import (
+    CasoError,
+    cerrar_caso,
+    reasignar_caso,
+    responder_caso,
+)
 from app.services.telegram_service import TelegramService
 from app.services.timeline_service import build_timeline
 
@@ -105,6 +110,7 @@ _OPERATOR_HELP = (
     "/caso <id> → ficha y línea de tiempo\n"
     "/responder <id> <mensaje> → responder al cliente\n"
     "/cerrar <id> → cerrar el caso\n"
+    "/liberar <id> → soltar tu caso para que otro lo tome\n"
     "/salir → salir del modo respuesta\n\n"
     "También puedes pulsar los botones del aviso de un caso o responder "
     "citando ese mensaje."
@@ -117,6 +123,11 @@ _OPERATOR_COMMAND_HELP = {
         "Ejemplo: /responder 12 Hola, ya estamos revisando tu caso."
     ),
     "/cerrar": "Uso: /cerrar <id>\nEjemplo: /cerrar 12",
+    "/liberar": (
+        "Uso: /liberar <id>\n"
+        "Ejemplo: /liberar 12\n"
+        "El caso queda sin asignar para que otro operador lo tome."
+    ),
 }
 
 # Roles que pueden recibir notificaciones y atender casos.
@@ -524,6 +535,17 @@ def _case_for_operator_reply(
 
 
 # ---------- Formato de casos / línea de tiempo ----------
+def _es_admin(db: Session, usuario: Usuario) -> bool:
+    return RolCodigo.ADMIN in _usuario_roles(db, usuario.id)
+
+
+def _puede_ver_caso(db: Session, usuario: Usuario, caso: CasoEscalamiento) -> bool:
+    """Admin ve todo; operador ve sus casos y los libres para reclamarlos."""
+    if _es_admin(db, usuario):
+        return True
+    return caso.responsable_id is None or caso.responsable_id == usuario.id
+
+
 def _format_caso(db: Session, caso: CasoEscalamiento) -> str:
     pedido = db.get(Pedido, caso.pedido_id)
     cliente = pedido.cliente if pedido else None
@@ -574,15 +596,22 @@ def _format_caso(db: Session, caso: CasoEscalamiento) -> str:
     return "\n".join(lineas)[:4000]
 
 
-def _format_casos(db: Session) -> str:
+def _format_casos(db: Session, usuario: Usuario) -> str:
+    stmt = select(CasoEscalamiento).where(
+        CasoEscalamiento.estado.in_([EstadoCaso.ABIERTO, EstadoCaso.EN_PROCESO])
+    )
+    if not _es_admin(db, usuario):
+        stmt = stmt.where(
+            or_(
+                CasoEscalamiento.responsable_id == usuario.id,
+                CasoEscalamiento.responsable_id.is_(None),
+            )
+        )
     casos = db.scalars(
-        select(CasoEscalamiento)
-        .where(CasoEscalamiento.estado.in_([EstadoCaso.ABIERTO, EstadoCaso.EN_PROCESO]))
-        .order_by(CasoEscalamiento.fecha_apertura.desc())
-        .limit(20)
+        stmt.order_by(CasoEscalamiento.fecha_apertura.desc()).limit(20)
     ).all()
     if not casos:
-        return "✅ No hay casos abiertos o en proceso."
+        return "✅ No hay casos abiertos o en proceso para ti."
 
     lineas = [f"📋 Casos activos ({len(casos)}):"]
     for caso in casos:
@@ -620,7 +649,9 @@ def _handle_operator_command(
             db, chat_id, "/casos", None, None, external_id,
             usuario_id=usuario.id,
         )
-        _reply(db, tg, chat_id, _format_casos(db), usuario_id=usuario.id)
+        _reply(
+            db, tg, chat_id, _format_casos(db, usuario), usuario_id=usuario.id,
+        )
         return {"handled": "operator_cases", "chat_id": chat_id}
 
     args = _command_args(text, "/caso")
@@ -643,6 +674,18 @@ def _handle_operator_command(
                 usuario_id=usuario.id,
             )
             return {"handled": "operator_case_not_found", "chat_id": chat_id}
+        if not _puede_ver_caso(db, usuario, caso):
+            responsable = (
+                db.get(Usuario, caso.responsable_id)
+                if caso.responsable_id else None
+            )
+            _reply(
+                db, tg, chat_id,
+                f"⚠️ El caso #{caso.id} está asignado a "
+                f"{responsable.nombre_completo if responsable else 'otro operador'}.",
+                usuario_id=usuario.id,
+            )
+            return {"handled": "operator_case_denied", "chat_id": chat_id}
         _reply(
             db, tg, chat_id, _format_caso(db, caso), usuario_id=usuario.id,
         )
@@ -680,6 +723,21 @@ def _handle_operator_command(
             return {"handled": "operator_close_help", "chat_id": chat_id}
         return _close_case(db, tg, chat_id, usuario, caso_id)
 
+    args = _command_args(text, "/liberar")
+    if args is not None:
+        _log_comando(
+            db, chat_id, "/liberar [id]", None, None, external_id,
+            usuario_id=usuario.id,
+        )
+        caso_id = _parse_caso_id(args)
+        if caso_id is None:
+            _reply(
+                db, tg, chat_id, _OPERATOR_COMMAND_HELP["/liberar"],
+                usuario_id=usuario.id,
+            )
+            return {"handled": "operator_release_help", "chat_id": chat_id}
+        return _release_case(db, tg, chat_id, usuario, caso_id)
+
     if _command_args(text, "/salir") is not None:
         _log_comando(
             db, chat_id, "/salir", None, None, external_id,
@@ -706,7 +764,12 @@ def _send_operator_reply(
 ) -> dict[str, Any]:
     try:
         caso, com, envio = responder_caso(
-            db, caso_id, contenido, usuario_id=usuario.id, telegram=tg,
+            db,
+            caso_id,
+            contenido,
+            usuario_id=usuario.id,
+            telegram=tg,
+            es_admin=_es_admin(db, usuario),
         )
     except CasoError as exc:
         _reply(
@@ -755,7 +818,11 @@ def _close_case(
 ) -> dict[str, Any]:
     try:
         caso, _com = cerrar_caso(
-            db, caso_id, usuario_id=usuario.id, telegram=tg,
+            db,
+            caso_id,
+            usuario_id=usuario.id,
+            telegram=tg,
+            es_admin=_es_admin(db, usuario),
         )
     except CasoError as exc:
         _reply(
@@ -773,6 +840,41 @@ def _close_case(
         usuario_id=usuario.id,
     )
     return {"handled": "operator_closed", "chat_id": chat_id, "caso_id": caso.id}
+
+
+def _release_case(
+    db: Session,
+    tg: TelegramService,
+    chat_id: int,
+    usuario: Usuario,
+    caso_id: int,
+) -> dict[str, Any]:
+    try:
+        caso, _com = reasignar_caso(
+            db,
+            caso_id,
+            None,
+            usuario_id=usuario.id,
+            es_admin=_es_admin(db, usuario),
+        )
+    except CasoError as exc:
+        _reply(
+            db, tg, chat_id, f"⚠️ {exc.message}", usuario_id=usuario.id,
+        )
+        return {
+            "handled": "operator_release_rejected",
+            "chat_id": chat_id,
+            "code": exc.code,
+        }
+
+    _clear_active_case(db, usuario)
+    _reply(
+        db, tg, chat_id,
+        f"🔓 Caso #{caso.id} liberado. Queda sin asignar para que otro "
+        "operador lo tome.",
+        usuario_id=usuario.id,
+    )
+    return {"handled": "operator_released", "chat_id": chat_id, "caso_id": caso.id}
 
 
 # ---------- Notificación al operador ----------
@@ -1053,6 +1155,83 @@ def notify_operator_new_caso(
             )
 
 
+def notify_caso_reasignado(
+    db: Session,
+    caso: CasoEscalamiento,
+    pedido: Pedido,
+    *,
+    actor_id: int,
+    telegram: TelegramService | None = None,
+) -> bool:
+    """Avisa por Telegram al nuevo responsable de un caso reasignado.
+
+    Devuelve True si no hacía falta avisar (autoasignación) o si el mensaje
+    salió. Devuelve False si el responsable no tiene Telegram o el envío
+    falló; la asignación ya está guardada y no se revierte.
+    """
+    if caso.responsable_id is None or caso.responsable_id == actor_id:
+        return True
+
+    tg = telegram or TelegramService()
+    if not tg.enabled:
+        return False
+    responsable = db.get(Usuario, caso.responsable_id)
+    if (
+        responsable is None
+        or not responsable.activo
+        or not responsable.telegram_chat_id
+    ):
+        return False
+    chat_id = str(responsable.telegram_chat_id)
+    cliente = pedido.cliente
+    if cliente and cliente.telegram_chat_id and str(cliente.telegram_chat_id) == chat_id:
+        return False
+
+    actor = db.get(Usuario, actor_id)
+    text = (
+        f"🔁 Caso #{caso.id} reasignado a ti\n"
+        f"Por: {actor.nombre_completo if actor else 'un administrador'}\n"
+        f"Pedido: {pedido.codigo}\n"
+        f"Cliente: {cliente.nombre if cliente else '—'}\n"
+        f"Motivo: {caso.motivo.value} · Prioridad: {caso.prioridad.value}\n\n"
+        "Pulsa Responder o usa /caso para ver el detalle."
+    )
+    envio = tg.send_message(
+        chat_id, text, reply_markup=_case_reply_markup(caso.id),
+    )
+    estado_entrega = "SENT" if envio.ok else (
+        "FAILED_RETRY" if envio.retriable else "FAILED"
+    )
+    db.add(Comunicacion(
+        pedido_id=pedido.id,
+        direccion=DireccionComunicacion.SALIENTE,
+        canal=Canal.TELEGRAM,
+        contenido=text,
+        autor=AutorComunicacion.AGENTE,
+        clase=ClaseComunicacion.OPERATIVO,
+        usuario_id=responsable.id,
+        escalado=False,
+        caso_id=caso.id,
+        estado_entrega=estado_entrega,
+        error_envio=(envio.error or "")[:500] if not envio.ok else None,
+        enviado_en=datetime.utcnow() if envio.ok else None,
+        fecha=datetime.utcnow(),
+    ))
+    if envio.ok and envio.message_id:
+        db.add(CasoTelegramNotificacion(
+            caso_id=caso.id,
+            usuario_id=responsable.id,
+            chat_id=chat_id,
+            message_id=int(envio.message_id),
+        ))
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("reassignment_notification_persist_failed caso_id=%s", caso.id)
+    return bool(envio.ok)
+
+
 # =========================================================================
 # Callback queries (botones inline)
 # =========================================================================
@@ -1083,10 +1262,19 @@ def handle_telegram_callback(
 
     caso_id = int(partes[1])
     accion = partes[2]
+    es_admin = _es_admin(db, usuario)
     caso = db.get(CasoEscalamiento, caso_id)
     if caso is None:
         tg.answer_callback_query(cq_id, f"No encontré el caso #{caso_id}.", show_alert=True)
         return {"handled": "callback_case_not_found", "chat_id": chat_id}
+
+    if not _puede_ver_caso(db, usuario, caso):
+        tg.answer_callback_query(
+            cq_id,
+            "Este caso está asignado a otro operador.",
+            show_alert=True,
+        )
+        return {"handled": "callback_case_denied", "chat_id": chat_id}
 
     if accion == "ver":
         tg.answer_callback_query(cq_id, f"Caso #{caso.id}")
@@ -1097,7 +1285,11 @@ def handle_telegram_callback(
         if caso.estado == EstadoCaso.CERRADO:
             tg.answer_callback_query(cq_id, "El caso ya está cerrado.", show_alert=True)
             return {"handled": "callback_case_closed", "chat_id": chat_id}
-        if caso.responsable_id and caso.responsable_id != usuario.id:
+        if (
+            not es_admin
+            and caso.responsable_id
+            and caso.responsable_id != usuario.id
+        ):
             tg.answer_callback_query(
                 cq_id,
                 "El caso ya está siendo atendido por otro operador.",

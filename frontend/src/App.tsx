@@ -11,6 +11,7 @@ import { PedidosListPage } from "./pages/pedidos/PedidosListPage";
 import { PedidoDetailPage } from "./pages/pedidos/PedidoDetailPage";
 import { ComunicacionesPage } from "./pages/comunicaciones/ComunicacionesPage";
 import { CasosPage } from "./pages/casos/CasosPage";
+import { ContestadorPage } from "./pages/contestador/ContestadorPage";
 import { ImprevistosPage } from "./pages/casos/ImprevistosPage";
 import { EntregasPage } from "./pages/entregas/EntregasPage";
 import { NuevaEntregaPage } from "./pages/entregas/NuevaEntregaPage";
@@ -39,6 +40,14 @@ export default function App() {
           <Route path="/agente" element={<AgentePage />} />
           <Route path="/alertas" element={<AlertasPage />} />
           <Route path="/casos" element={<CasosPage />} />
+          <Route
+            path="/contestador"
+            element={
+              <RequireRole roles={["ADMIN", "OPERADOR"]}>
+                <ContestadorPage />
+              </RequireRole>
+            }
+          />
           <Route path="/imprevistos" element={<ImprevistosPage />} />
           <Route path="/entregas" element={<EntregasPage />} />
           <Route path="/entregas/nueva" element={<NuevaEntregaPage />} />

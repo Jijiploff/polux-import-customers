@@ -33,7 +33,7 @@ flowchart TB
     end
 
     subgraph Frontend["Frontend React (SPA) — localhost:5173"]
-        UI["15 páginas: Dashboard, Pedidos, Entregas,<br/>Comunicaciones, Alertas, Casos, Imprevistos, Admin"]
+        UI["16 páginas: Dashboard, Pedidos, Entregas,<br/>Comunicaciones, Alertas, Casos, Contestador, Imprevistos, Admin"]
     end
 
     subgraph Backend["Backend FastAPI — localhost:8000"]
@@ -162,7 +162,7 @@ polux-import-customers/
 | `items` | `/items` | Ítems del pedido (incluye `PATCH /{id}/estado`) |
 | `hitos` | `/hitos` | Hitos por ítem, marcar completado, atrasos |
 | `entregas` | `/entregas` | Crear/completar entrega (completa o parcial) |
-| `casos` | `/casos` | Casos de escalamiento (1ª acción, cierre) |
+| `casos` | `/casos` | Casos de escalamiento (1ª acción, respuesta, cierre, reasignar/liberar) |
 | `imprevistos` | `/imprevistos` | Registro y resolución de imprevistos |
 | `comunicaciones` | `/comunicaciones` | Historial y envío manual |
 | `alertas` | `/alertas` | Bandeja de alertas (atender) |
@@ -171,7 +171,7 @@ polux-import-customers/
 | `kpis` | `/kpis` | Cálculo KPI, series temporales, validación SQL |
 | `dashboard` | `/dashboard` | `/resumen` (7 KPIs + semáforos) |
 | `admin` | `/admin` | `POST /run-rules`, `/sync-facts` (operación manual) |
-| `agent` | `/agent` | Agente IA: mensaje entrante, proveedor LLM, métricas, bandeja y hilo de conversaciones (`/agent/chats`, `/agent/thread`) |
+| `agent` | `/agent` | Agente IA: mensaje entrante, proveedor LLM, métricas, bandeja e hilo de conversaciones (`/agent/chats`, `/agent/thread`); filtrado por rol para el Contestador |
 | `outbox` | `/outbox` | Estado de cola y `POST /run` (despacho manual) |
 | `webhooks` | `/webhooks` | Callback de WhatsApp (verificación + mensajes) |
 
@@ -194,7 +194,7 @@ también por un `CHECK` en la BD).
 
 ## 6. Capa frontend
 
-15 páginas agradas por dominio:
+16 páginas agrupadas por dominio:
 
 | Grupo | Páginas |
 |---|---|
@@ -202,7 +202,7 @@ también por un `CHECK` en la BD).
 | Operación | `DashboardPage` (7 KPIs + filtros), `pedidos/PedidosListPage`, `pedidos/PedidoDetailPage` |
 | Entregas | `entregas/EntregasPage`, `entregas/NuevaEntregaPage` |
 | Comunicación | `comunicaciones/ComunicacionesPage`, `AlertasPage` |
-| Casos | `casos/CasosPage`, `casos/ImprevistosPage` |
+| Casos | `casos/CasosPage`, `contestador/ContestadorPage`, `casos/ImprevistosPage` |
 | Administración | `admin/UsuariosPage`, `admin/ReglasPage`, `admin/CatalogosPage`, `admin/AdminOpsPage` |
 
 Componentes compartidos: `DataTable`, `Pagination`, `FilterBar`, `KpiChart`,

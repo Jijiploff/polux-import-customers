@@ -70,6 +70,12 @@ def _mk_pedido(db, *, suffix: str | None = None) -> Pedido:
     return ped
 
 
+def _user_id(db, email: str) -> int:
+    uid = db.scalar(select(Usuario.id).where(Usuario.email == email))
+    assert uid is not None
+    return uid
+
+
 def _mk_caso(db, ped: Pedido, *, estado: EstadoCaso = EstadoCaso.ABIERTO) -> CasoEscalamiento:
     caso = CasoEscalamiento(
         pedido_id=ped.id,
@@ -375,8 +381,8 @@ def test_chats_y_thread_del_simulador(client, auth, db):
         )
         assert r.status_code == 200
 
-        # La bandeja muestra el chat con cliente, preview y conteo
-        r = client.get("/api/v1/agent/chats", headers=auth["operador"])
+        # La bandeja del admin muestra todas las conversaciones.
+        r = client.get("/api/v1/agent/chats", headers=auth["admin"])
         assert r.status_code == 200
         chat = next((c for c in r.json() if c["pedido_id"] == ped.id), None)
         assert chat is not None
@@ -388,7 +394,7 @@ def test_chats_y_thread_del_simulador(client, auth, db):
 
         # El hilo devuelve los mensajes en orden cronológico
         r = client.get(
-            f"/api/v1/agent/thread?pedido_id={ped.id}", headers=auth["operador"]
+            f"/api/v1/agent/thread?pedido_id={ped.id}", headers=auth["admin"]
         )
         assert r.status_code == 200
         hilo = r.json()
@@ -550,17 +556,27 @@ def test_caso_detalle_y_respuesta_local_asigna_primer_operador(
         assert ("9900101", "Hola, ya estamos revisando tu caso.") in telegram.sent
 
         db.refresh(caso)
-        assert caso.responsable_id is not None
+        operador_id = caso.responsable_id
+        assert operador_id is not None
         assert caso.estado == EstadoCaso.EN_PROCESO
 
-        # Otro operador ya no puede responder el mismo caso.
+        # El admin puede apoyar en un caso asignado, sin robar la asignación.
         r = client.post(
             f"/api/v1/casos/{caso.id}/responder",
             headers=auth["admin"],
             json={"contenido": "Yo también quiero responder."},
         )
-        assert r.status_code == 409
-        assert "siendo atendido" in r.json()["detail"]
+        assert r.status_code == 200
+        assert r.json()["enviado"] is True
+        db.refresh(caso)
+        assert caso.responsable_id == operador_id
+
+        # La ficha del admin confirma que puede responder casos ajenos.
+        detalle_admin = client.get(
+            f"/api/v1/casos/{caso.id}", headers=auth["admin"]
+        )
+        assert detalle_admin.status_code == 200
+        assert detalle_admin.json()["puede_responder"] is True
 
         # El mismo responsable sí puede seguir conversando.
         r = client.post(
@@ -725,9 +741,10 @@ def test_thread_y_chats_ignoran_mensajes_operativos(client, auth, db):
     ))
     db.commit()
     try:
-        # Por defecto solo se ve la conversación con el cliente.
+        # Por defecto solo se ve la conversación con el cliente. El admin
+        # puede auditar cualquier pedido aunque no tenga caso asignado.
         hilo = client.get(
-            f"/api/v1/agent/thread?pedido_id={ped.id}", headers=auth["operador"]
+            f"/api/v1/agent/thread?pedido_id={ped.id}", headers=auth["admin"]
         ).json()
         assert len(hilo) == 1
         assert hilo[0]["contenido"] == "Hola, ¿cómo va mi pedido?"
@@ -736,7 +753,7 @@ def test_thread_y_chats_ignoran_mensajes_operativos(client, auth, db):
         # Con la bandera de auditoría aparecen ambos y se distinguen.
         hilo = client.get(
             f"/api/v1/agent/thread?pedido_id={ped.id}&incluir_operativos=true",
-            headers=auth["operador"],
+            headers=auth["admin"],
         ).json()
         assert [m["clase"] for m in hilo] == ["CLIENTE", "OPERATIVO"]
         assert hilo[1]["contenido"].startswith("✅")
@@ -744,11 +761,216 @@ def test_thread_y_chats_ignoran_mensajes_operativos(client, auth, db):
         # La bandeja cuenta y previsualiza solo la conversación.
         chat = next(
             c for c in client.get(
-                "/api/v1/agent/chats", headers=auth["operador"]
+                "/api/v1/agent/chats", headers=auth["admin"]
             ).json()
             if c["pedido_id"] == ped.id
         )
         assert chat["total_mensajes"] == 1
         assert chat["ultima_preview"] == "Hola, ¿cómo va mi pedido?"
+    finally:
+        _cleanup(db, ped.id)
+
+
+# --------- Visibilidad y asignación por rol ---------
+def test_operador_solo_ve_sus_chats_y_casos_mas_los_libres(client, auth, db):
+    operador_id = _user_id(db, "t.oper@example.com")
+    admin_id = _user_id(db, "t.admin@example.com")
+    suf = uuid.uuid4().hex[:5]
+    ped_propio = _mk_pedido(db, suffix=f"vis1-{suf}")
+    ped_libre = _mk_pedido(db, suffix=f"vis2-{suf}")
+    ped_ajeno = _mk_pedido(db, suffix=f"vis3-{suf}")
+    caso_propio = _mk_caso(db, ped_propio)
+    caso_propio.responsable_id = operador_id
+    caso_libre = _mk_caso(db, ped_libre)
+    caso_ajeno = _mk_caso(db, ped_ajeno)
+    caso_ajeno.responsable_id = admin_id
+    db.commit()
+    try:
+        chats = client.get("/api/v1/agent/chats", headers=auth["operador"])
+        assert chats.status_code == 200
+        ids_chats = {c["pedido_id"] for c in chats.json()}
+        assert ped_propio.id in ids_chats
+        assert ped_libre.id not in ids_chats
+        assert ped_ajeno.id not in ids_chats
+
+        casos = client.get("/api/v1/casos", headers=auth["operador"]).json()
+        ids_casos = {c["id"] for c in casos}
+        assert caso_propio.id in ids_casos
+        assert caso_libre.id in ids_casos
+        assert caso_ajeno.id not in ids_casos
+
+        # El admin ve todo.
+        chats_admin = client.get("/api/v1/agent/chats", headers=auth["admin"]).json()
+        ids_chats_admin = {c["pedido_id"] for c in chats_admin}
+        assert {ped_propio.id, ped_libre.id, ped_ajeno.id} <= ids_chats_admin
+        casos_admin = client.get("/api/v1/casos", headers=auth["admin"]).json()
+        ids_casos_admin = {c["id"] for c in casos_admin}
+        assert {caso_propio.id, caso_libre.id, caso_ajeno.id} <= ids_casos_admin
+    finally:
+        for ped in (ped_propio, ped_libre, ped_ajeno):
+            _cleanup(db, ped.id)
+
+
+def test_thread_bloquea_caso_ajeno_pero_permite_libre(client, auth, db):
+    admin_id = _user_id(db, "t.admin@example.com")
+    suf = uuid.uuid4().hex[:5]
+    ped_ajeno = _mk_pedido(db, suffix=f"thr1-{suf}")
+    ped_libre = _mk_pedido(db, suffix=f"thr2-{suf}")
+    caso_ajeno = _mk_caso(db, ped_ajeno)
+    caso_ajeno.responsable_id = admin_id
+    _mk_caso(db, ped_libre)
+    db.commit()
+    try:
+        r = client.get(
+            f"/api/v1/agent/thread?pedido_id={ped_ajeno.id}",
+            headers=auth["operador"],
+        )
+        assert r.status_code == 403
+        assert "otro operador" in r.json()["detail"]
+
+        # Un caso libre se puede abrir para decidir si reclamarlo.
+        r = client.get(
+            f"/api/v1/agent/thread?pedido_id={ped_libre.id}",
+            headers=auth["operador"],
+        )
+        assert r.status_code == 200
+
+        # El admin puede auditar cualquier conversación.
+        r = client.get(
+            f"/api/v1/agent/thread?pedido_id={ped_ajeno.id}",
+            headers=auth["admin"],
+        )
+        assert r.status_code == 200
+    finally:
+        for ped in (ped_ajeno, ped_libre):
+            _cleanup(db, ped.id)
+
+
+def test_admin_reasigna_y_operador_libera_caso(client, auth, db):
+    operador_id = _user_id(db, "t.oper@example.com")
+    admin_id = _user_id(db, "t.admin@example.com")
+    ped = _mk_pedido(db, suffix=f"asig1-{uuid.uuid4().hex[:5]}")
+    caso = _mk_caso(db, ped)
+    try:
+        # El admin asigna el caso libre al operador.
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/reasignar",
+            headers=auth["admin"],
+            json={"responsable_id": operador_id},
+        )
+        assert r.status_code == 200
+        assert r.json()["caso"]["responsable_id"] == operador_id
+        db.refresh(caso)
+        assert caso.responsable_id == operador_id
+
+        audit = db.scalar(
+            select(Comunicacion).where(
+                Comunicacion.caso_id == caso.id,
+                Comunicacion.clase == ClaseComunicacion.OPERATIVO,
+            )
+        )
+        assert audit is not None
+        assert "reasignado" in audit.contenido.lower()
+
+        # La asignación no se puede saltar el flujo auditado por PATCH.
+        r = client.patch(
+            f"/api/v1/casos/{caso.id}",
+            headers=auth["admin"],
+            json={"responsable_id": admin_id},
+        )
+        assert r.status_code == 400
+        assert "reasignar" in r.json()["detail"].lower()
+
+        # El operador no puede reasignar a otro: solo liberar.
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/reasignar",
+            headers=auth["operador"],
+            json={"responsable_id": admin_id},
+        )
+        assert r.status_code == 403
+
+        # El operador responsable libera el caso.
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/reasignar",
+            headers=auth["operador"],
+            json={"responsable_id": None},
+        )
+        assert r.status_code == 200
+        assert r.json()["caso"]["responsable_id"] is None
+        db.refresh(caso)
+        assert caso.responsable_id is None
+
+        # Un operador no puede liberar un caso libre que no es suyo.
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/reasignar",
+            headers=auth["operador"],
+            json={"responsable_id": None},
+        )
+        assert r.status_code == 403
+
+        # GERENTE no tiene acceso a la operación.
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/reasignar",
+            headers=auth["gerente"],
+            json={"responsable_id": None},
+        )
+        assert r.status_code == 403
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_human_reply_operador_sin_caso_denegado_admin_ok(client, auth, db, monkeypatch):
+    ped = _mk_pedido(db, suffix=f"hrep1-{uuid.uuid4().hex[:5]}")
+    ped.cliente.telegram_chat_id = "9900201"
+    db.commit()
+    telegram = _FakeTelegram()
+    monkeypatch.setattr(
+        "app.services.caso_service.TelegramService", lambda: telegram
+    )
+    try:
+        r = client.post(
+            "/api/v1/agent/human-reply",
+            headers=auth["operador"],
+            json={"pedido_id": ped.id, "contenido": "Hola"},
+        )
+        assert r.status_code == 403
+
+        r = client.post(
+            "/api/v1/agent/human-reply",
+            headers=auth["admin"],
+            json={"pedido_id": ped.id, "contenido": "Hola desde admin"},
+        )
+        assert r.status_code == 200
+        assert ("9900201", "Hola desde admin") in telegram.sent
+    finally:
+        _cleanup(db, ped.id)
+
+
+def test_cerrar_caso_ajeno_admin_si_operador_no(client, auth, db):
+    admin_id = _user_id(db, "t.admin@example.com")
+    ped = _mk_pedido(db, suffix=f"cerr1-{uuid.uuid4().hex[:5]}")
+    caso = _mk_caso(db, ped)
+    caso.responsable_id = admin_id
+    db.commit()
+    try:
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/cerrar", headers=auth["operador"]
+        )
+        assert r.status_code == 409
+
+        r = client.patch(
+            f"/api/v1/casos/{caso.id}",
+            headers=auth["operador"],
+            json={"estado": "CERRADO"},
+        )
+        assert r.status_code == 403
+
+        r = client.post(
+            f"/api/v1/casos/{caso.id}/cerrar", headers=auth["admin"]
+        )
+        assert r.status_code == 200
+        assert r.json()["caso"]["estado"] == "CERRADO"
+        db.refresh(caso)
+        assert caso.responsable_id == admin_id
     finally:
         _cleanup(db, ped.id)

@@ -17,6 +17,11 @@ export interface CasoCierre {
   aviso?: string | null;
 }
 
+export interface CasoReasignacion {
+  caso: Caso;
+  aviso?: string | null;
+}
+
 export const casosApi = {
   list: (params: { estado?: EstadoCaso; pedido_id?: number } = {}) => {
     const q = new URLSearchParams();
@@ -31,7 +36,9 @@ export const casosApi = {
   responder: (id: number, contenido: string) =>
     api.post<CasoRespuesta>(`/casos/${id}/responder`, { contenido }),
   cerrar: (id: number) => api.post<CasoCierre>(`/casos/${id}/cerrar`),
+  reasignar: (id: number, responsable_id: number | null) =>
+    api.post<CasoReasignacion>(`/casos/${id}/reasignar`, { responsable_id }),
   actualizar: (id: number, payload: {
-    estado?: EstadoCaso; responsable_id?: number; registrar_primera_accion?: boolean;
+    estado?: EstadoCaso; registrar_primera_accion?: boolean;
   }) => api.patch<Caso>(`/casos/${id}`, payload),
 };

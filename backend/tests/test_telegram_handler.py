@@ -4,7 +4,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
@@ -159,6 +159,28 @@ def _crear_operador(
             db.add(rol)
             db.flush()
         db.add(UsuarioRol(usuario_id=usuario.id, rol_id=rol.id))
+    db.commit()
+    db.refresh(usuario)
+    return usuario
+
+
+def _crear_admin(db, *, chat_id: str | None = None) -> Usuario:
+    suf = uuid.uuid4().hex[:8]
+    usuario = Usuario(
+        email=f"adm{suf}@example.com",
+        nombre_completo=f"Admin {suf}",
+        password_hash=hash_password("Clave123!"),
+        activo=True,
+        telegram_chat_id=chat_id,
+    )
+    db.add(usuario)
+    db.flush()
+    rol = db.scalar(select(Rol).where(Rol.codigo == RolCodigo.ADMIN))
+    if rol is None:
+        rol = Rol(codigo=RolCodigo.ADMIN, nombre="Administrador")
+        db.add(rol)
+        db.flush()
+    db.add(UsuarioRol(usuario_id=usuario.id, rol_id=rol.id))
     db.commit()
     db.refresh(usuario)
     return usuario
@@ -760,6 +782,90 @@ def test_comandos_casos_y_detalle(operador, escenario):
     )
     assert r2["handled"] == "operator_case"
     assert "Caso de prueba del bot" in tg.sent[-1][1]
+
+
+def test_operador_no_ve_ni_abre_caso_de_otro(operadores, escenario):
+    db_ops, usuarios = operadores
+    db, pedido, _cliente = escenario
+    usuario1, usuario2 = usuarios
+    caso = _crear_caso(db, pedido)
+    caso.responsable_id = usuario1.id
+    db.commit()
+    tg = FakeTelegram()
+
+    r1 = handle_telegram_update(db, _update(3002, "/casos"), telegram=tg)
+    assert r1["handled"] == "operator_cases"
+    assert f"#{caso.id}" not in tg.sent[-1][1]
+
+    r2 = handle_telegram_update(
+        db, _update(3002, f"/caso {caso.id}"), telegram=tg,
+    )
+    assert r2["handled"] == "operator_case_denied"
+
+    r3 = handle_telegram_update(
+        db, _callback_update(3002, f"caso:{caso.id}:ver"), telegram=tg,
+    )
+    assert r3["handled"] == "callback_case_denied"
+
+
+def test_admin_responde_caso_ajeno_sin_robar_responsable(operador, escenario):
+    db, usuario = operador
+    db2, pedido, cliente = escenario
+    base = int(uuid.uuid4().hex[:8], 16) % 900000
+    admin_chat = str(1000000 + base)
+    op_chat = str(2000000 + base)
+    cli_chat = str(3000000 + base)
+    admin = _crear_admin(db, chat_id=admin_chat)
+    usuario.telegram_chat_id = op_chat
+    cliente.telegram_chat_id = cli_chat
+    db.commit()
+    db2.commit()
+    caso = _crear_caso(db2, pedido)
+    caso.responsable_id = usuario.id
+    db2.commit()
+    tg = FakeTelegram()
+    try:
+        result = handle_telegram_update(
+            db2,
+            _update(admin_chat, f"/responder {caso.id} Respuesta del admin"),
+            telegram=tg,
+        )
+        assert result["handled"] == "operator_replied"
+        assert (int(cli_chat), "Respuesta del admin") in tg.sent
+        db2.refresh(caso)
+        assert caso.responsable_id == usuario.id
+    finally:
+        db.execute(delete(Comunicacion).where(
+            Comunicacion.usuario_id == admin.id
+        ))
+        db.execute(delete(UsuarioCasoActivo).where(
+            UsuarioCasoActivo.usuario_id == admin.id
+        ))
+        db.execute(update(CasoEscalamiento).where(
+            CasoEscalamiento.updated_by_id == admin.id
+        ).values(updated_by_id=None))
+        db.commit()
+        _borrar_usuarios(db, [admin.id])
+
+
+def test_operador_libera_su_caso_desde_telegram(operador, escenario):
+    db, usuario = operador
+    db2, pedido, _cliente = escenario
+    op_chat = str(2000000 + int(uuid.uuid4().hex[:6], 16))
+    usuario.telegram_chat_id = op_chat
+    db.commit()
+    caso = _crear_caso(db2, pedido)
+    caso.responsable_id = usuario.id
+    db2.commit()
+    tg = FakeTelegram()
+
+    result = handle_telegram_update(
+        db2, _update(op_chat, f"/liberar {caso.id}"), telegram=tg,
+    )
+
+    assert result["handled"] == "operator_released"
+    db2.refresh(caso)
+    assert caso.responsable_id is None
 
 
 def test_salir_limpia_el_caso_activo(operador, escenario):
