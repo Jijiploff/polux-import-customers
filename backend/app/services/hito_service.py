@@ -17,6 +17,8 @@ from app.models import (
     PedidoItem,
 )
 from app.services.pedido_service import recompute_pedido_estado
+from app.services.notification_service import NotificationService
+from app.services.outbox_worker import OutboxWorker
 
 
 def get_item_hito(db: Session, item_hito_id: int) -> ItemHito:
@@ -68,9 +70,46 @@ def marcar_completado(
 
     pedido: Pedido = item.pedido
     recompute_pedido_estado(db, pedido)
+    _notificar_hito_completado(db, ih, pedido, usuario_id)
     db.commit()
     db.refresh(ih)
     return ih
+
+
+def _notificar_hito_completado(
+    db: Session,
+    ih: ItemHito,
+    pedido: Pedido,
+    usuario_id: int | None,
+) -> None:
+    """Envía el aviso inmediatamente cuando el cliente tiene Telegram vinculado.
+
+    El motor de reglas mantiene la notificación de otros canales y el reintento
+    periódico. Aquí se despacha el outbox en la misma operación para no esperar
+    al siguiente ciclo del scheduler.
+    """
+    cliente = pedido.cliente
+    if cliente is None or not cliente.telegram_chat_id:
+        return
+
+    comunicacion = NotificationService(db).send_from_template(
+        codigo_plantilla="AVISO_HITO",
+        pedido=pedido,
+        variables={
+            "cliente_nombre": cliente.nombre,
+            "pedido_codigo": pedido.codigo,
+            "hito_nombre": ih.hito.nombre,
+            "items_afectados": ih.item.descripcion_producto,
+            "fecha_prometida": pedido.fecha_prometida.strftime("%d/%m/%Y"),
+        },
+        usuario_id=usuario_id,
+    )
+    if comunicacion is None:
+        return
+
+    OutboxWorker(db).process_communication(comunicacion.id)
+    ih.notificado_cliente = True
+    ih.fecha_notificacion = datetime.utcnow()
 
 
 def registrar_atrasos(db: Session, ahora: datetime | None = None) -> int:
