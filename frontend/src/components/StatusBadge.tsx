@@ -28,7 +28,7 @@ const PALETTE: Record<string, { bg: string; fg: string }> = {
   CRITICA: { bg: "#fee2e2", fg: "#991b1b" },
   ALTA: { bg: "#ffedd5", fg: "#9a3412" },
   MEDIA: { bg: "#fef3c7", fg: "#92400e" },
-  BAJA: { bg: "#e5e7eb", fg: "#374151" },
+  BAJA: { bg: "#dcfce7", fg: "#166534" },
   // Entregas
   PROGRAMADA: { bg: "#dbeafe", fg: "#1d4ed8" },
   ENTREGADA: { bg: "#dcfce7", fg: "#166534" },

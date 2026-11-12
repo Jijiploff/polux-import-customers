@@ -100,6 +100,7 @@ class Settings(BaseSettings):
 
     # ---- Telegram ----
     TELEGRAM_ENABLED: bool = False
+    TELEGRAM_MODE: str = "ai"  # mock | ai
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_WEBHOOK_SECRET: str = ""
     TELEGRAM_OPERATOR_CHAT_ID: str = ""

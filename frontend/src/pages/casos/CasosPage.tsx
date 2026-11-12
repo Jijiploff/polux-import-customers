@@ -517,7 +517,8 @@ export function CasosPage() {
           rows={rows}
           columns={[
             { key: "id", header: "#", render: (c) => c.id },
-            { key: "pedido", header: "Pedido", render: (c) => c.pedido_id },
+            { key: "pedido", header: "Pedido",
+              render: (c) => c.pedido_codigo ?? `#${c.pedido_id}` },
             { key: "motivo", header: "Motivo",
               render: (c) => <StatusBadge value={c.motivo} /> },
             { key: "prioridad", header: "Prioridad",
@@ -532,6 +533,7 @@ export function CasosPage() {
             { key: "acc", header: "Acciones",
               render: (c) => hasRole("ADMIN", "OPERADOR") ? (
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  <button onClick={() => abrirResponder(c)}>Ver detalle</button>
                   {c.estado !== "CERRADO" && (
                     <button onClick={() => abrirResponder(c)}>Responder</button>
                   )}

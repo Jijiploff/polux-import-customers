@@ -27,7 +27,7 @@ vi.mock("../api/pedidos", () => ({
 }));
 
 const CASO = {
-  id: 7, pedido_id: 21, motivo: "RECLAMO", prioridad: "ALTA",
+  id: 7, pedido_id: 21, pedido_codigo: "PD-2025-0021", motivo: "RECLAMO", prioridad: "ALTA",
   descripcion: "Cliente molesto", fecha_apertura: "2026-11-10T10:00:00",
   fecha_primera_accion: null, responsable_id: null, estado: "ABIERTO",
   fecha_cierre: null,
@@ -36,7 +36,7 @@ const CASO = {
 vi.mock("../api/casos", () => ({
   casosApi: {
     list: vi.fn().mockResolvedValue([{
-      id: 7, pedido_id: 21, motivo: "RECLAMO", prioridad: "ALTA",
+      id: 7, pedido_id: 21, pedido_codigo: "PD-2025-0021", motivo: "RECLAMO", prioridad: "ALTA",
       descripcion: "Cliente molesto", fecha_apertura: "2026-11-10T10:00:00",
       fecha_primera_accion: null, responsable_id: null, estado: "ABIERTO",
       fecha_cierre: null,

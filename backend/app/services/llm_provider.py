@@ -93,6 +93,14 @@ class LLMProvider(ABC):
         return {"provider": self.name, "model": self.name, "limits": {}, "usage": {}}
 
 
+def get_telegram_llm_provider() -> LLMProvider:
+    """Selecciona el motor conversacional de Telegram sin afectar WhatsApp."""
+    settings = get_settings()
+    if settings.TELEGRAM_MODE.lower() != "ai":
+        return MockProvider()
+    return get_llm_provider("gemini")
+
+
 # =========================================================================
 # Mock (deterministic)
 # =========================================================================
@@ -169,6 +177,12 @@ class MockProvider(LLMProvider):
         if facts.get("knowledge_answer"):
             return str(facts["knowledge_answer"])
         nombre = facts.get("cliente_nombre", "")
+        if facts.get("sin_pedido"):
+            return (
+                f"¡Hola{f' {nombre}' if nombre else ''}! 👋 Soy el asistente de Polux Import. "
+                "Envíame tu código de pedido junto con tu DNI para vincularlo, "
+                "o dime en qué necesitas ayuda."
+            )
         if intent == Intent.SALUDO:
             return (
                 f"Hola {nombre}, soy el asistente de Polux Import. "
@@ -490,18 +504,19 @@ class OpenAIProvider(LLMProvider):
 
     def compose_response(self, intent: Intent, facts: dict) -> str:
         system = (
-            "Eres un redactor de mensajes de atención al cliente de Polux Import. "
-            "Escribe en español, tono cordial y profesional, máximo 4 líneas. "
+            "Eres un asesor conversacional de Polux Import para Telegram. "
+            "Escribe en español, tono cálido, humano y semi-formal, en 2 a 4 líneas. "
+            "Usa solo el nombre de pila del cliente, nunca una firma. "
             "REGLAS ESTRICTAS:\n"
             "- Usa EXCLUSIVAMENTE los datos del bloque DATOS.\n"
             "- NO inventes fechas. Solo menciona fechas del bloque DATOS.\n"
             "- NO prometas fechas de entrega que no estén en DATOS.\n"
-            "- NO menciones pagos, cuotas ni contratos.\n"
-            "- NO ofrezcas entregas parciales.\n"
-            "- NO repitas el teléfono ni el correo del cliente.\n"
-            "- Si el cliente pide entrega parcial, reclama o reporta un daño, indica "
-            "que un asesor lo contactará.\n"
-            "- Responde preguntas generales usando únicamente CONOCIMIENTO_EMPRESA.\n"
+            "- Si falta un dato, dilo con honestidad y ofrece escalarlo.\n"
+            "- Nunca decidas excepciones, descuentos, cambios, reembolsos o entregas parciales.\n"
+            "- Ante molestia, daño o reclamo, reconoce la emoción antes del siguiente paso.\n"
+            "- Siempre termina con una pregunta o siguiente paso concreto.\n"
+            "- Nunca uses frases como 'según el sistema', 'le informamos' o 'saludos cordiales'.\n"
+            "- Si DATOS indica sin_pedido=true, pide el código de pedido y el DNI para vincularlo.\n"
         )
         user = (
             f"INTENCIÓN: {intent.value}\n"
@@ -673,10 +688,10 @@ class OpenAIProvider(LLMProvider):
 # =========================================================================
 # Factory
 # =========================================================================
-def get_llm_provider() -> LLMProvider:
+def get_llm_provider(provider_override: str | None = None) -> LLMProvider:
     settings = get_settings()
-    provider = settings.LLM_PROVIDER.lower()
-    if provider == "openai":
+    provider = (provider_override or settings.LLM_PROVIDER).lower()
+    if provider in ("openai", "gemini"):
         if not settings.LLM_API_KEY:
             logger.warning("LLM_API_KEY vacío; se usará MockProvider")
             return MockProvider()

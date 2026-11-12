@@ -66,4 +66,14 @@ test("muestra la clase de cada mensaje y filtra por operativo", async () => {
         page: 1, size: 50, pedido_id: undefined, clase: "OPERATIVO",
       });
   });
+
+  test("muestra el detalle completo al seleccionar una comunicación", async () => {
+      renderPage();
+
+      fireEvent.click(await screen.findByText("Hola, ¿cómo va mi pedido?"));
+
+      expect(await screen.findByText("Detalle de comunicación #1")).toBeInTheDocument();
+      expect(screen.getByText("Contenido completo:")).toBeInTheDocument();
+      expect(screen.getAllByText("Hola, ¿cómo va mi pedido?")).toHaveLength(2);
+  });
 });

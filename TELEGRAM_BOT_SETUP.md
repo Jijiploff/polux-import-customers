@@ -89,6 +89,8 @@ TELEGRAM_BOT_TOKEN=123456789:ABCdef-GHIjklMNOpqrSTUvwxYZ12345678
 TELEGRAM_WEBHOOK_SECRET=un-secreto-largo-aleatorio-aqui
 TELEGRAM_OPERATOR_CHAT_ID=
 TELEGRAM_API_TIMEOUT_SECONDS=15
+# mock para pruebas locales; ai para usar Gemini en cada consulta de cliente
+TELEGRAM_MODE=ai
 ```
 
 Cambia:
@@ -104,6 +106,10 @@ Cambia:
 Deja:
 - `TELEGRAM_ENABLED=false` **por ahora** (se activa en el paso 4).
 - `TELEGRAM_OPERATOR_CHAT_ID=` **vacío**: los operadores se vinculan con `/vincular` (paso 6).
+
+`TELEGRAM_MODE=ai` activa clasificación y redacción con Gemini. Requiere
+`LLM_API_KEY`, `LLM_BASE_URL` y `LLM_MODEL` configurados en la sección
+**Agente IA**. Usa `mock` para pruebas locales sin llamadas externas.
 
 Guarda con **Ctrl + S** y cierra.
 

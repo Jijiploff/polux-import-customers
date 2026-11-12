@@ -7,6 +7,9 @@ import {
 import { FilterBar, Filters, defaultFilters } from "../components/FilterBar";
 import { KpiChart } from "../components/KpiChart";
 import { Loading } from "../components/Loading";
+import { StatusBadge } from "../components/StatusBadge";
+import { alertasApi } from "../api/alertas";
+import type { Alerta, SeveridadAlerta } from "../types/domain";
 
 const KPI_META: { codigo: string; titulo: string; key: keyof DashboardResumen; sufijo: string }[] = [
   { codigo: "FREQ_ACTUALIZACION_CLIENTE", titulo: "Actualización al cliente",
@@ -24,6 +27,17 @@ const KPI_META: { codigo: string; titulo: string; key: keyof DashboardResumen; s
   { codigo: "PCT_ENTREGAS_PARCIALES", titulo: "% entregas parciales",
     key: "entregas_parciales", sufijo: "%" },
 ];
+
+const SEVERIDAD_ORDEN: Record<SeveridadAlerta, number> = {
+  CRITICA: 0, ALTA: 1, MEDIA: 2, BAJA: 3,
+};
+
+const SEVERIDAD_COLOR: Record<SeveridadAlerta, { bg: string; border: string }> = {
+  CRITICA: { bg: "#fee2e2", border: "#dc2626" },
+  ALTA: { bg: "#ffedd5", border: "#f97316" },
+  MEDIA: { bg: "#fef3c7", border: "#eab308" },
+  BAJA: { bg: "#dcfce7", border: "#16a34a" },
+};
 
 function KpiCard({ titulo, valor, semaforo, sufijo }: {
   titulo: string; valor?: number | null; semaforo: string; sufijo?: string;
@@ -51,11 +65,17 @@ export function DashboardPage() {
   const [serie, setSerie] = useState<SerieResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingSerie, setLoadingSerie] = useState(false);
+  const [alertas, setAlertas] = useState<Alerta[]>([]);
 
   useEffect(() => {
     if (!hasRole("ADMIN", "GERENTE")) return;
     kpisApi.resumen().then(setResumen).catch((e) => setError(String(e)));
     kpisApi.filtros().then(setOpciones).catch(() => {});
+    alertasApi.list({ estado: "ABIERTA" })
+      .then((items) => setAlertas(items.sort(
+        (a, b) => SEVERIDAD_ORDEN[a.severidad] - SEVERIDAD_ORDEN[b.severidad],
+      )))
+      .catch(() => setAlertas([]));
   }, [hasRole]);
 
   useEffect(() => {
@@ -97,6 +117,41 @@ export function DashboardPage() {
       </p>
 
       <FilterBar filters={filters} opciones={opciones} onChange={setFilters} />
+
+      <h2>Alertas activas</h2>
+      {alertas.length === 0 ? (
+        <div className="surface-card" style={{ padding: "1rem", color: "#166534" }}>
+          No hay alertas activas.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: "0.6rem", marginBottom: "1.5rem" }}>
+          {alertas.map((alerta) => {
+            const colors = SEVERIDAD_COLOR[alerta.severidad];
+            return (
+              <div
+                key={alerta.id}
+                className="surface-card"
+                style={{
+                  padding: "0.75rem 1rem", background: colors.bg,
+                  borderLeft: `5px solid ${colors.border}`,
+                }}
+              >
+                <div style={{
+                  display: "flex", justifyContent: "space-between",
+                  gap: "0.75rem", alignItems: "center",
+                }}>
+                  <strong>{alerta.pedido_codigo ?? `#${alerta.pedido_id}`}</strong>
+                  <StatusBadge value={alerta.severidad} />
+                </div>
+                <div style={{ marginTop: 4 }}>{alerta.mensaje}</div>
+                <small style={{ color: "#475569" }}>
+                  {alerta.tipo.replace(/_/g, " ")} · {new Date(alerta.fecha_deteccion).toLocaleString()}
+                </small>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <h2>Snapshot actual</h2>
       <div style={{

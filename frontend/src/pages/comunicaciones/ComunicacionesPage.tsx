@@ -29,6 +29,7 @@ export function ComunicacionesPage() {
   const [fContenido, setFContenido] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [comunicacionDetalle, setComunicacionDetalle] = useState<Comunicacion | null>(null);
 
   useEffect(() => {
     comunicacionesApi.list({
@@ -158,10 +159,39 @@ export function ComunicacionesPage() {
           </div>
         </form>
       </Modal>
+      <Modal
+        open={comunicacionDetalle !== null}
+        title={comunicacionDetalle ? `Detalle de comunicación #${comunicacionDetalle.id}` : "Detalle de comunicación"}
+        onClose={() => setComunicacionDetalle(null)}
+      >
+        {comunicacionDetalle && (
+          <div style={{ display: "grid", gap: "0.55rem", fontSize: "0.88rem" }}>
+            <div><strong>Fecha:</strong> {new Date(comunicacionDetalle.fecha).toLocaleString()}</div>
+            <div><strong>Pedido:</strong> {comunicacionDetalle.pedido_id ?? "Sin pedido"}</div>
+            <div><strong>Dirección:</strong> {comunicacionDetalle.direccion}</div>
+            <div><strong>Canal:</strong> {comunicacionDetalle.canal}</div>
+            <div><strong>Clase:</strong> {comunicacionDetalle.clase}</div>
+            <div><strong>Autor:</strong> {comunicacionDetalle.autor}</div>
+            <div><strong>Intención:</strong> {comunicacionDetalle.intencion_detectada ?? "—"}</div>
+            <div><strong>Escalado:</strong> {comunicacionDetalle.escalado ? "Sí" : "No"}</div>
+            <div>
+              <strong>Contenido completo:</strong>
+              <div style={{
+                marginTop: 4, padding: "0.7rem", borderRadius: 6,
+                background: "#f8fafc", border: "1px solid #e2e8f0",
+                whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+              }}>
+                {comunicacionDetalle.contenido}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
       {!rows ? <Loading /> : (
         <>
           <DataTable
             rows={rows}
+            onRowClick={setComunicacionDetalle}
             columns={[
               { key: "id", header: "#", render: (c) => c.id },
               { key: "fecha", header: "Fecha",

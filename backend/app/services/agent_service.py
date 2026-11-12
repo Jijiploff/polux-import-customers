@@ -251,14 +251,28 @@ class AgentService:
                 )
                 incoming.escalado = True
                 incoming.caso_id = caso.id
-                outgoing = self.notifier.send_from_plantilla_code(
-                    codigo_plantilla="AGENTE_HOLDING_ESCALAMIENTO",
-                    pedido=pedido,
-                    variables={"cliente_nombre": pedido.cliente.nombre},
-                    intencion=intent.value,
-                    sentimiento=sentiment.value,
-                    escalado=True, caso_id=caso.id,
-                )
+                if self.provider.name == "mock":
+                    outgoing = self.notifier.send_from_plantilla_code(
+                        codigo_plantilla="AGENTE_HOLDING_ESCALAMIENTO",
+                        pedido=pedido,
+                        variables={"cliente_nombre": pedido.cliente.nombre},
+                        intencion=intent.value,
+                        sentimiento=sentiment.value,
+                        escalado=True, caso_id=caso.id,
+                    )
+                else:
+                    response_text = self._compose_escalation(
+                        intent, {
+                            **self._build_facts(pedido),
+                            "user_question": incoming.contenido,
+                            "next_step": "Un asesor evaluará la solicitud y te contactará.",
+                        },
+                    )
+                    outgoing = self.notifier.send_raw_from_agent(
+                        pedido=pedido, contenido=response_text,
+                        intencion=intent.value, sentimiento=sentiment.value,
+                        escalado=True, caso_id=caso.id,
+                    )
                 return AgentResult(
                     incoming_comunicacion_id=incoming.id,
                     outgoing_comunicacion_id=outgoing.id if outgoing else None,
@@ -291,8 +305,9 @@ class AgentService:
         if pedido is not None and intent in (Intent.ESTADO_PEDIDO, Intent.RETRASO):
             return self._handle_estado(pedido, incoming, classification, fallback)
 
-        # 7. Intents "cerrados" → usar plantilla aprobada
-        if intent in _INTENT_TO_PLANTILLA and pedido is not None:
+        # El modo mock conserva las plantillas auditadas. El modo IA redacta
+        # también saludos y derivaciones con el contexto real de la conversación.
+        if self.provider.name == "mock" and intent in _INTENT_TO_PLANTILLA and pedido is not None:
             return self._respond_from_plantilla(
                 pedido=pedido, incoming=incoming,
                 classification=classification,
@@ -351,22 +366,52 @@ class AgentService:
         self.db.flush()
 
         outgoing = None
+        outgoing_id: int | None = None
         response_text: str | None = None
         if pedido is not None:
-            outgoing = self.notifier.send_from_plantilla_code(
-                codigo_plantilla=codigo_plantilla,
-                pedido=pedido,
-                variables={"cliente_nombre": pedido.cliente.nombre},
-                intencion=classification.intent.value,
-                sentimiento=classification.sentiment.value,
-                escalado=True,
-                caso_id=caso_id,
-            )
+            if self.provider.name == "mock":
+                outgoing = self.notifier.send_from_plantilla_code(
+                    codigo_plantilla=codigo_plantilla,
+                    pedido=pedido,
+                    variables={"cliente_nombre": pedido.cliente.nombre},
+                    intencion=classification.intent.value,
+                    sentimiento=classification.sentiment.value,
+                    escalado=True,
+                    caso_id=caso_id,
+                )
+            else:
+                response_text = self._compose_escalation(
+                    classification.intent,
+                    {
+                        **self._build_facts(pedido),
+                        "user_question": incoming.contenido,
+                        "escalated": True,
+                        "priority": prioridad.value,
+                        "next_step": "Un asesor revisará tu caso y te contactará.",
+                    },
+                )
+                outgoing = self.notifier.send_raw_from_agent(
+                    pedido=pedido, contenido=response_text,
+                    intencion=classification.intent.value,
+                    sentimiento=classification.sentiment.value,
+                    escalado=True, caso_id=caso_id,
+                )
             response_text = outgoing.contenido if outgoing else None
         else:
-            response_text = (
-                "Hola, hemos derivado tu caso con un asesor que te contactará en breve."
+            response_text = self._compose_escalation(
+                classification.intent,
+                {
+                    "cliente_nombre": self._first_name(cliente.nombre) if cliente else "",
+                    "prioridad": prioridad.value,
+                    "next_step": "Un asesor revisará tu consulta y te contactará.",
+                    "user_question": incoming.contenido,
+                },
             )
+            outgoing = self._persist_agent_response(
+                incoming, response_text, classification,
+                escalated=True, caso_id=caso_id,
+            )
+            outgoing_id = outgoing.id
 
         logger.info(
             "agent_escalated pedido_id=%s motivo=%s caso_id=%s intent=%s",
@@ -375,7 +420,7 @@ class AgentService:
         )
         return AgentResult(
             incoming_comunicacion_id=incoming.id,
-            outgoing_comunicacion_id=outgoing.id if outgoing else None,
+            outgoing_comunicacion_id=outgoing.id if outgoing else outgoing_id,
             classification=self._serialize_classification(classification),
             escalated=True,
             escalation_reason=classification.intent.value,
@@ -393,6 +438,7 @@ class AgentService:
         fallback: bool,
     ) -> AgentResult:
         facts = self._build_facts(pedido)
+        facts["user_question"] = incoming.contenido
         response_text, used_fallback = self._compose_with_guardrails(
             classification.intent, facts, pedido,
         )
@@ -452,12 +498,15 @@ class AgentService:
         fallback: bool,
     ) -> AgentResult:
         facts = {
-            "cliente_nombre": (
+            "cliente_nombre": self._first_name(
                 pedido.cliente.nombre if pedido else (cliente.nombre if cliente else "")
             ),
             "valid_dates": [],
-            "knowledge_context": contexto(),
-            "knowledge_answer": respuesta(incoming.contenido),
+            "knowledge_context": contexto() if self.provider.name == "mock" else "",
+            "knowledge_answer": (
+                respuesta(incoming.contenido) if self.provider.name == "mock" else None
+            ),
+            "sin_pedido": pedido is None,
             "user_question": incoming.contenido,
         }
         response_text, used_fallback = self._compose_with_guardrails(
@@ -473,6 +522,11 @@ class AgentService:
                 require_consent=False,
             )
             outgoing_id = outgoing.id if outgoing else None
+        else:
+            outgoing = self._persist_agent_response(
+                incoming, response_text, classification,
+            )
+            outgoing_id = outgoing.id
         return AgentResult(
             incoming_comunicacion_id=incoming.id,
             outgoing_comunicacion_id=outgoing_id,
@@ -490,13 +544,15 @@ class AgentService:
         classification: ClassificationResult,
         fallback: bool,
     ) -> AgentResult:
-        nombre = cliente.nombre if cliente else ""
+        nombre = self._first_name(cliente.nombre) if cliente else ""
         text = (
             f"Hola {nombre}, para consultar el estado de tu pedido necesito que "
             "me indiques tu código de pedido (por ejemplo PD-2025-0001)."
         ).strip()
+        outgoing = self._persist_agent_response(incoming, text, classification)
         return AgentResult(
             incoming_comunicacion_id=incoming.id,
+            outgoing_comunicacion_id=outgoing.id,
             classification=self._serialize_classification(classification),
             response_text=text,
             fallback_used=fallback,
@@ -597,7 +653,7 @@ class AgentService:
         ) is not None
 
         return {
-            "cliente_nombre": pedido.cliente.nombre,
+            "cliente_nombre": self._first_name(pedido.cliente.nombre),
             "pedido_codigo": pedido.codigo,
             "estado_pedido": _ESTADOS_PEDIDO_LABEL.get(
                 pedido.estado_actual, pedido.estado_actual.value
@@ -643,6 +699,51 @@ class AgentService:
 
     def _deterministic_fallback(self, intent: Intent, facts: dict[str, Any]) -> str:
         return MockProvider().compose_response(intent, facts)
+
+    def _compose_escalation(self, intent: Intent, facts: dict[str, Any]) -> str:
+        if self.provider.name == "mock":
+            return (
+                f"Entiendo tu consulta, {facts.get('cliente_nombre', '')}. "
+                "Voy a escalarla con un asesor para que la revise y te contacte."
+            ).strip()
+        try:
+            return self.provider.compose_response(
+                intent, {**facts, "escalated": True}
+            ).strip()
+        except Exception as exc:
+            logger.exception("llm_escalation_compose_failed err=%s", exc)
+            return self._deterministic_fallback(intent, facts)
+
+    def _persist_agent_response(
+        self,
+        incoming: Comunicacion,
+        text: str,
+        classification: ClassificationResult,
+        *,
+        escalated: bool = False,
+        caso_id: int | None = None,
+    ) -> Comunicacion:
+        outgoing = Comunicacion(
+            pedido_id=incoming.pedido_id,
+            direccion=DireccionComunicacion.SALIENTE,
+            canal=incoming.canal,
+            contenido=text,
+            intencion_detectada=classification.intent.value,
+            sentimiento=classification.sentiment.value,
+            autor=AutorComunicacion.AGENTE,
+            clase=ClaseComunicacion.CLIENTE,
+            estado_entrega="PENDING",
+            escalado=escalated,
+            caso_id=caso_id,
+            fecha=datetime.utcnow(),
+        )
+        self.db.add(outgoing)
+        self.db.flush()
+        return outgoing
+
+    @staticmethod
+    def _first_name(name: str | None) -> str:
+        return (name or "").strip().split(" ", 1)[0]
 
     # =================================================================
     # Helpers

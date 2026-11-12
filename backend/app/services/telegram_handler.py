@@ -44,7 +44,7 @@ from app.models import (
 )
 from app.schemas.agent import IncomingMessage
 from app.services.agent_service import AgentService
-from app.services.knowledge_base import es_consulta_conocida
+from app.services.llm_provider import get_telegram_llm_provider
 from app.services.caso_service import (
     CasoError,
     cerrar_caso,
@@ -1448,40 +1448,17 @@ def handle_telegram_update(
             if forward is not None:
                 return forward
 
-    if not cliente:
-        if es_consulta_conocida(text):
-            result = AgentService(db).handle_incoming_message(
-                IncomingMessage(
-                    canal=Canal.TELEGRAM,
-                    contenido=text,
-                    whatsapp_message_id=external_id,
-                )
-            )
-            if result.response_text:
-                _reply(db, tg, chat_id, result.response_text)
-                return {
-                    "handled": "knowledge_answer",
-                    "chat_id": chat_id,
-                    "intent": result.classification.intent,
-                }
+    if not cliente and operador is not None:
         _log_comando(db, chat_id, text, None, None, external_id)
-        if operador is not None:
-            _reply(db, tg, chat_id, _OPERATOR_HELP)
-            return {"handled": "operator_help", "chat_id": chat_id}
-        msg = (
-            "No encontré un pedido asociado a tu cuenta de Telegram.\n"
-            "Envíame tu código de pedido junto con tu DNI para vincularlo.\n"
-            "Ejemplo: PD-2025-0001 70000001"
-        )
-        _reply(db, tg, chat_id, msg)
-        return {"handled": "no_cliente", "chat_id": chat_id}
+        _reply(db, tg, chat_id, _OPERATOR_HELP)
+        return {"handled": "operator_help", "chat_id": chat_id}
 
     # ---------- Procesar con el agente (reutiliza toda la lógica) ----------
-    agente = AgentService(db)
+    agente = AgentService(db, provider=get_telegram_llm_provider())
     result = agente.handle_incoming_message(
         IncomingMessage(
             pedido_id=pedido.id if pedido else None,
-            cliente_id=cliente.id,
+            cliente_id=cliente.id if cliente else None,
             canal=Canal.TELEGRAM,
             contenido=text,
             whatsapp_message_id=external_id,

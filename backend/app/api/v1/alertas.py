@@ -24,7 +24,13 @@ def listar(
         stmt = stmt.where(Alerta.estado == estado)
     if pedido_id:
         stmt = stmt.where(Alerta.pedido_id == pedido_id)
-    return db.scalars(stmt).all()
+    alertas = db.scalars(stmt).all()
+    return [
+        AlertaRead.model_validate(alerta).model_copy(
+            update={"pedido_codigo": alerta.pedido.codigo if alerta.pedido else None}
+        )
+        for alerta in alertas
+    ]
 
 
 @router.patch(

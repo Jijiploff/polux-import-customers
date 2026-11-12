@@ -70,7 +70,13 @@ def listar(
                 CasoEscalamiento.responsable_id.is_(None),
             )
         )
-    return db.scalars(stmt).all()
+    casos = db.scalars(stmt).all()
+    return [
+        CasoRead.model_validate(caso).model_copy(
+            update={"pedido_codigo": caso.pedido.codigo if caso.pedido else None}
+        )
+        for caso in casos
+    ]
 
 
 @router.get("/{caso_id}", response_model=CasoDetalleRead)

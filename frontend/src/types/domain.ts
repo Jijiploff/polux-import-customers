@@ -92,7 +92,7 @@ export interface Comunicacion {
 }
 
 export interface Alerta {
-  id: number; tipo: TipoAlerta; pedido_id: number;
+  id: number; tipo: TipoAlerta; pedido_id: number; pedido_codigo?: string | null;
   severidad: SeveridadAlerta; mensaje: string;
   estado: EstadoAlerta; fecha_deteccion: string;
 }
@@ -105,7 +105,8 @@ export interface Imprevisto {
 }
 
 export interface Caso {
-  id: number; pedido_id: number; motivo: MotivoEscalamiento;
+  id: number; pedido_id: number; pedido_codigo?: string | null;
+  motivo: MotivoEscalamiento;
   prioridad: PrioridadCaso; descripcion: string;
   fecha_apertura: string; fecha_primera_accion?: string | null;
   responsable_id?: number | null; responsable_nombre?: string | null;

@@ -7,8 +7,13 @@ export interface Column<T> {
 }
 
 export function DataTable<T>({
-  columns, rows, empty = "Sin registros",
-}: { columns: Column<T>[]; rows: T[]; empty?: string }) {
+  columns, rows, empty = "Sin registros", onRowClick,
+}: {
+  columns: Column<T>[];
+  rows: T[];
+  empty?: string;
+  onRowClick?: (row: T) => void;
+}) {
   if (!rows.length) return <div className="empty-state">{empty}</div>;
   return (
     <div className="data-table-wrap">
@@ -24,7 +29,15 @@ export function DataTable<T>({
       </thead>
       <tbody>
         {rows.map((r, i) => (
-          <tr key={i}>
+          <tr
+            key={i}
+            onClick={onRowClick ? () => onRowClick(r) : undefined}
+            onKeyDown={onRowClick ? (e) => {
+              if (e.key === "Enter" || e.key === " ") onRowClick(r);
+            } : undefined}
+            tabIndex={onRowClick ? 0 : undefined}
+            style={onRowClick ? { cursor: "pointer" } : undefined}
+          >
             {columns.map((c) => (
               <td key={c.key} style={{ verticalAlign: "top" }}>
                 {c.render(r)}

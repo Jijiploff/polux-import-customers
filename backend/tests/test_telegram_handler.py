@@ -285,6 +285,16 @@ def test_parser_codigo_y_dni():
     )
 
 
+def test_chat_no_vinculado_pasa_al_agente_sin_error(escenario):
+    db, _pedido, _cliente = escenario
+    tg = FakeTelegram()
+
+    result = handle_telegram_update(db, _update(1099, "Hola"), telegram=tg)
+
+    assert result["handled"] == "message"
+    assert tg.sent
+
+
 # ---------- Flujo de vinculación ----------
 def test_sin_dni_pide_dni_y_no_vincula(escenario):
     db, pedido, cliente = escenario

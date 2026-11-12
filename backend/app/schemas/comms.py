@@ -59,6 +59,7 @@ class AlertaRead(_OrmModel):
     id: int
     tipo: TipoAlerta
     pedido_id: int
+    pedido_codigo: Optional[str] = None
     severidad: SeveridadAlerta
     mensaje: str
     estado: EstadoAlerta
@@ -94,6 +95,7 @@ class ImprevistoRead(_OrmModel):
 class CasoRead(_OrmModel):
     id: int
     pedido_id: int
+    pedido_codigo: Optional[str] = None
     motivo: MotivoEscalamiento
     prioridad: PrioridadCaso
     descripcion: str
