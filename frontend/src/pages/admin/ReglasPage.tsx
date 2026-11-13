@@ -8,19 +8,44 @@ export function ReglasPage() {
   const [rows, setRows] = useState<Regla[] | null>(null);
   const [editId, setEditId] = useState<number | null>(null);
   const [valor, setValor] = useState("");
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  async function load() { setRows(await adminApi.reglas.list()); }
+  async function load() {
+    try {
+      setError(null);
+      setRows(await adminApi.reglas.list());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
   useEffect(() => { load(); }, []);
 
   async function guardar(id: number) {
-    await adminApi.reglas.actualizar(id, { valor });
-    setEditId(null);
-    load();
+    try {
+      setSavingId(id);
+      setError(null);
+      await adminApi.reglas.actualizar(id, { valor });
+      setEditId(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingId(null);
+    }
   }
 
   async function toggle(r: Regla) {
-    await adminApi.reglas.actualizar(r.id, { activo: !r.activo });
-    load();
+    try {
+      setSavingId(r.id);
+      setError(null);
+      await adminApi.reglas.actualizar(r.id, { activo: !r.activo });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingId(null);
+    }
   }
 
   return (
@@ -30,6 +55,7 @@ export function ReglasPage() {
         Parametrización del motor de reglas. Cada cambio se aplica en la siguiente
         corrida del scheduler.
       </p>
+      {error && <p style={{ color: "crimson" }}>{error}</p>}
       {!rows ? <Loading /> : (
         <DataTable
           rows={rows}
@@ -40,8 +66,28 @@ export function ReglasPage() {
             { key: "val", header: "Valor", render: (r) =>
               editId === r.id ? (
                 <span>
-                  <input value={valor} onChange={(e) => setValor(e.target.value)} />
-                  <button onClick={() => guardar(r.id)}>OK</button>
+                  <input
+                    value={valor}
+                    onChange={(e) => setValor(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") guardar(r.id);
+                      if (e.key === "Escape") setEditId(null);
+                    }}
+                    autoFocus
+                    disabled={savingId === r.id}
+                  />
+                  <button
+                    onClick={() => guardar(r.id)}
+                    disabled={savingId === r.id}
+                  >
+                    {savingId === r.id ? "Guardando…" : "Guardar"}
+                  </button>
+                  <button
+                    onClick={() => setEditId(null)}
+                    disabled={savingId === r.id}
+                  >
+                    Cancelar
+                  </button>
                 </span>
               ) : r.valor
             },
@@ -49,8 +95,15 @@ export function ReglasPage() {
             { key: "acc", header: "",
               render: (r) => (
                 <span style={{ display: "flex", gap: 4 }}>
-                  <button onClick={() => { setEditId(r.id); setValor(r.valor); }}>Editar</button>
-                  <button onClick={() => toggle(r)}>{r.activo ? "Desactivar" : "Activar"}</button>
+                  <button
+                    onClick={() => { setEditId(r.id); setValor(r.valor); }}
+                    disabled={savingId !== null}
+                  >
+                    Editar
+                  </button>
+                  <button onClick={() => toggle(r)} disabled={savingId !== null}>
+                    {r.activo ? "Desactivar" : "Activar"}
+                  </button>
                 </span>
               ) },
           ]}

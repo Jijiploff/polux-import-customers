@@ -60,6 +60,10 @@ export const adminApi = {
       umbral_optimo?: number; umbral_alerta?: number; umbral_critico?: number;
     }) => api.patch<DimKpi>(`/catalogos/kpis/${id}`, payload),
   },
-  runRules: () => api.post<{ counts: Record<string, number> }>("/admin/run-rules"),
+  runRules: () => api.post<{
+    before: Record<string, number>;
+    counts: Record<string, number>;
+    after: Record<string, number>;
+  }>("/admin/run-rules"),
   syncFacts: () => api.post<{ counts: Record<string, number> }>("/admin/sync-facts"),
 };
